@@ -19,7 +19,7 @@ const fineRoutes = require('./routes/fineRoutes');
 const reservationRoutes = require('./routes/reservationRoutes');
 const notificationRoutes = require('./routes/notificationRoutes');
 const analyticsRoutes = require('./routes/analyticsRoutes');
-const paymentRoutes = require('./routes/paymentRoutes');   // ✅ ADDED
+const paymentRoutes = require('./routes/paymentRoutes');
 
 const app = express();
 
@@ -33,45 +33,77 @@ app.use(
 );
 app.use(compression());
 
-// Parse dynamic CORS origins
+// ============================================================
+// ✅ FIXED: Dynamic CORS Configuration for Production & Dev
+// ============================================================
 const parseOrigins = (val) => {
   if (!val) return [];
   return val.split(',').map((s) => s.trim()).filter(Boolean);
 };
 
-const allowedOrigins = [
+// Build list of allowed origins
+// Supports: CLIENT_URL, ADMIN_URL, FRONTEND_URL (for flexibility)
+let allowedOrigins = [
+  // Environment variables from Render/Vercel
   ...parseOrigins(process.env.CLIENT_URL),
-  ...parseOrigins(process.env.ADMIN_URL),
-  'http://localhost:5173',
-  'http://localhost:4200',
-  'http://localhost:3000',
-  'http://localhost:5000'
-].filter(Boolean);
+  ...parseOrigins(process.env.ADMIN_URL), 
+  ...parseOrigins(process.env.FRONTEND_URL), // Added support for FRONTEND_URL
+  
+  // Local development ports
+  'http://localhost:5173',   // Vite default
+  'http://localhost:4200',   // Angular default
+  'http://localhost:3000',   // React default
+  'http://localhost:5000',   // Backend port (if serving static)
+  
+  // Remove duplicates
+].filter((v, i, a) => a.indexOf(v) === i);
+
+console.log('[CORS] Allowed Origins:', allowedOrigins); // Debug log to verify on Render
 
 app.use(
   cors({
     origin: function (origin, callback) {
-      if (!origin || allowedOrigins.includes(origin) || allowedOrigins.includes('*')) {
-        callback(null, true);
-      } else {
-        if (process.env.NODE_ENV !== 'production') {
-          callback(null, true);
-        } else {
-          callback(new Error('Not allowed by CORS'), false);
-        }
+      // Allow requests with no origin (mobile apps, Postman, curl, server-to-server)
+      if (!origin) {
+        return callback(null, true);
       }
+      
+      // Check if origin is explicitly allowed
+      if (allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+      
+      // ⭐ NEW: Allow all vercel.app domains (regex match for subdomains)
+      if (origin.match(/https:\/\/.*\.vercel\.app$/) || 
+          origin.match(/https:\/\/.*\.onrender\.com$/)) {
+        return callback(null, true);
+      }
+      
+      // In non-production (development), allow everything
+      if (process.env.NODE_ENV !== 'production') {
+        console.log('[CORS] Allowing dev origin:', origin);
+        return callback(null, true);
+      }
+      
+      // Block in production
+      console.error('[CORS] Blocked origin:', origin);
+      callback(new Error('Not allowed by CORS'), false);
     },
-    credentials: true,
+    credentials: true, // Important for cookies/auth tokens
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept']
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept'],
+    exposedHeaders: ['Authorization'] // If you send custom headers back
   })
 );
+
+// Handle preflight requests explicitly
+app.options('*', cors());
 
 // Global API Rate Limiting
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 500,
-  message: 'Too many requests from this IP, please try again after 15 minutes'
+  message: { status: 'error', message: 'Too many requests from this IP, please try again after 15 minutes' }
 });
 app.use('/api', limiter);
 
@@ -79,17 +111,17 @@ app.use('/api', limiter);
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 30,
-  message: 'Too many authentication attempts from this IP, please try again after 15 minutes'
+  message: { status: 'error', message: 'Too many authentication attempts from this IP, please try again after 15 minutes' }
 });
 app.use('/api/v1/auth', authLimiter);
 app.use('/api/auth', authLimiter);
 app.use('/auth', authLimiter);
 
-// Payment order creation rate limit (abuse se bachne ke liye)
+// Payment order creation rate limit
 const paymentLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 20,
-  message: 'Too many payment attempts, please try again later'
+  message: { status: 'error', message: 'Too many payment attempts, please try again later' }
 });
 app.use('/api/v1/payments/create-order', paymentLimiter);
 app.use('/api/payments/create-order', paymentLimiter);
@@ -110,21 +142,22 @@ const registerRoutes = (prefix) => {
   app.use(`${prefix}/reservations`, reservationRoutes);
   app.use(`${prefix}/notifications`, notificationRoutes);
   app.use(`${prefix}/analytics`, analyticsRoutes);
-  app.use(`${prefix}/payments`, paymentRoutes);   // ✅ ADDED
+  app.use(`${prefix}/payments`, paymentRoutes);
 };
 
 registerRoutes('/api/v1');
 registerRoutes('/api');
 registerRoutes('');
 
-// Health Check & Root API Endpoints (Phase 5 requirement: /api/health returns status: success)
+// Health Check Endpoints
 app.get(['/api/health', '/api/v1/health', '/health', '/api', '/api/v1'], (req, res) => {
   res.status(200).json({
     status: 'success',
     system: 'Smart Library Management System (SLMS) Backend API',
     version: '1.0.0',
     environment: process.env.NODE_ENV || 'production',
-    timestamp: new Date().toISOString()
+    timestamp: new Date().toISOString(),
+    corsAllowed: allowedOrigins // Helpful for debugging
   });
 });
 
@@ -146,7 +179,10 @@ function resolveStaticPath(relativeSubPath) {
 
 // Serve Angular Admin Console Static Assets (/admin)
 app.use('/admin', (req, res, next) => {
-  const angularDistPath = resolveStaticPath('frontend-react/dist/admin/browser') || resolveStaticPath('frontend-react/dist/admin') || resolveStaticPath('admin-angular/dist/admin-angular/browser') || resolveStaticPath('admin-angular/dist/slms-admin-angular/browser');
+  const angularDistPath = resolveStaticPath('frontend-react/dist/admin/browser') || 
+                          resolveStaticPath('frontend-react/dist/admin') || 
+                          resolveStaticPath('admin-angular/dist/admin-angular/browser') || 
+                          resolveStaticPath('admin-angular/dist/slms-admin-angular/browser');
   if (angularDistPath) {
     express.static(angularDistPath)(req, res, next);
   } else {
@@ -155,7 +191,10 @@ app.use('/admin', (req, res, next) => {
 });
 
 app.get(['/admin', '/admin/*'], (req, res, next) => {
-  const angularDistPath = resolveStaticPath('frontend-react/dist/admin/browser') || resolveStaticPath('frontend-react/dist/admin') || resolveStaticPath('admin-angular/dist/admin-angular/browser') || resolveStaticPath('admin-angular/dist/slms-admin-angular/browser');
+  const angularDistPath = resolveStaticPath('frontend-react/dist/admin/browser') || 
+                          resolveStaticPath('frontend-react/dist/admin') || 
+                          resolveStaticPath('admin-angular/dist/admin-angular/browser') || 
+                          resolveStaticPath('admin-angular/dist/slms-admin-angular/browser');
   if (angularDistPath && fs.existsSync(path.join(angularDistPath, 'index.html'))) {
     return res.sendFile(path.join(angularDistPath, 'index.html'));
   }
@@ -175,7 +214,10 @@ app.use((req, res, next) => {
 
 app.get('*', (req, res, next) => {
   const url = req.originalUrl || req.url || '';
-  if (url.startsWith('/api') || url.startsWith('/auth') || url.startsWith('/users') || url.startsWith('/books') || url.startsWith('/transactions') || url.startsWith('/fines') || url.startsWith('/reservations') || url.startsWith('/notifications') || url.startsWith('/analytics') || url.startsWith('/payments')) {
+  if (url.startsWith('/api') || url.startsWith('/auth') || url.startsWith('/users') || 
+      url.startsWith('/books') || url.startsWith('/transactions') || url.startsWith('/fines') || 
+      url.startsWith('/reservations') || url.startsWith('/notifications') || 
+      url.startsWith('/analytics') || url.startsWith('/payments')) {
     return next(new AppError(`Can't find ${url} on this server!`, 404));
   }
   const reactDistPath = resolveStaticPath('frontend-react/dist');
