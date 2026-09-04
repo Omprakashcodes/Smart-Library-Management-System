@@ -1,9 +1,9 @@
+const sendEmail = require('../utils/sendEmail');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const User = require('../models/User');
 const ApiResponse = require('../utils/apiResponse');
 const AuditLog = require('../models/AuditLog');
-const sendEmail = require('../utils/sendEmail');
 
 const signToken = (id) => {
   return jwt.sign({ id }, process.env.JWT_SECRET || 'super_secret_slms_jwt_key_2026_production_ready', {
@@ -105,18 +105,29 @@ const forgotPassword = async (req, res, next) => {
     const cleanEmail = (email || '').trim().toLowerCase();
     const genericMsg = 'If an account exists with that email address, password reset instructions have been processed.';
 
+    // DEBUG: Log incoming request
+    console.log('🔍 [FORGOT-PW] Request received for:', cleanEmail);
+
     const user = await User.findOne({ email: cleanEmail });
+    
     if (!user) {
+      console.log('⚠️ [FORGOT-PW] No user found with email:', cleanEmail);
       return ApiResponse.success(res, null, genericMsg);
     }
+
+    console.log('✅ [FORGOT-PW] User found:', user.email, '| Role:', user.role);
 
     const resetToken = crypto.randomBytes(32).toString('hex');
     user.resetPasswordToken = crypto.createHash('sha256').update(resetToken).digest('hex');
     user.resetPasswordExpires = Date.now() + 30 * 60 * 1000; // 30 mins
     await user.save({ validateBeforeSave: false });
 
+    console.log('🔑 [FORGOT-PW] Token generated, expiry set');
+
     const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
     const resetUrl = `${frontendUrl}/reset-password?token=${resetToken}`;
+
+    console.log('🌐 [FORGOT-PW] Reset URL constructed:', resetUrl.substring(0, 50) + '...');
 
     const emailTemplate = `
       <div style="max-width: 600px; margin: 0 auto; padding: 20px; font-family: Arial, sans-serif; background-color: #0f172a; color: #ffffff; border-radius: 12px;">
@@ -131,11 +142,22 @@ const forgotPassword = async (req, res, next) => {
     `;
 
     try {
+      // 🔴 CRITICAL DEBUG: Check environment variables before sending
+      console.log('📧 [EMAIL-DEBUG] === EMAIL SENDING ATTEMPT STARTED ===');
+      console.log('📧 [EMAIL-DEBUG] Target Email:', user.email);
+      console.log('📧 [EMAIL-DEBUG] EMAIL_USER env var exists:', !!process.env.EMAIL_USER);
+      console.log('📧 [EMAIL-DEBUG] EMAIL_USER value:', process.env.EMAIL_USER || 'NOT SET');
+      console.log('📧 [EMAIL-DEBUG] EMAIL_PASS env var exists:', !!process.env.EMAIL_PASS);
+      console.log('📧 [EMAIL-DEBUG] EMAIL_PASS length:', process.env.EMAIL_PASS ? process.env.EMAIL_PASS.length : 0);
+      console.log('📧 [EMAIL-DEBUG] FRONTEND_URL:', frontendUrl);
+      
       await sendEmail({
         email: user.email,
         subject: 'Smart Library System - Password Reset Request',
         html: emailTemplate,
       });
+
+      console.log('✅ [EMAIL-DEBUG] === EMAIL SENT SUCCESSFULLY ===');
 
       await AuditLog.create({
         performedBy: user._id,
@@ -146,7 +168,14 @@ const forgotPassword = async (req, res, next) => {
 
       return ApiResponse.success(res, null, genericMsg);
     } catch (emailErr) {
-      console.error('Email sending failed:', emailErr);
+      // 🔴 DETAILED ERROR LOGGING
+      console.error('❌ [EMAIL-ERROR] === EMAIL SENDING FAILED ===');
+      console.error('❌ [EMAIL-ERROR] Error Name:', emailErr.name);
+      console.error('❌ [EMAIL-ERROR] Error Message:', emailErr.message);
+      console.error('❌ [EMAIL-ERROR] Error Code:', emailErr.code);
+      console.error('❌ [EMAIL-ERROR] Full Error Object:', JSON.stringify(emailErr, Object.getOwnPropertyNames(emailErr)));
+      
+      // Clean up tokens on failure
       user.resetPasswordToken = undefined;
       user.resetPasswordExpires = undefined;
       await user.save({ validateBeforeSave: false });
@@ -154,6 +183,7 @@ const forgotPassword = async (req, res, next) => {
       return ApiResponse.error(res, 'Failed to send reset email. Please try again later.', 500);
     }
   } catch (error) {
+    console.error('💥 [FORGOT-PW] Unexpected error:', error.message);
     next(error);
   }
 };

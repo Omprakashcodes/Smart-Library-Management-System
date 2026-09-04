@@ -23,6 +23,9 @@ const paymentRoutes = require('./routes/paymentRoutes');
 
 const app = express();
 
+app.set('trust proxy', 1); // Critical for Render/Vercel behind proxies
+app.enable('trust proxy'); // Enable trust proxy globally
+
 // Security Headers
 app.use(
   helmet({

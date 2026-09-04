@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { BookOpen, LogIn, Lock, Mail, UserPlus, Eye, EyeOff } from 'lucide-react';
+import { BookOpen, LogIn, Lock, Mail, UserPlus } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 
 export default function Login() {
@@ -8,67 +8,38 @@ export default function Login() {
   const navigate = useNavigate();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
-
-  // Shorthand → full email mapping
-  const resolveEmail = (raw) => {
-    let clean = (raw || '').trim().toLowerCase();
-    if (clean === 'student') clean = 'student@slms.com';
-    if (clean === 'faculty') clean = 'faculty@slms.com';
-    if (clean === 'admin') clean = 'admin@slms.com';
-    if (clean === 'librarian') clean = 'librarian@slms.com';
-    return clean;
-  };
-
-  const isBlockedRole = (role = '') =>
-    role === 'super_admin' ||
-    role === 'admin' ||
-    role === 'librarian' ||
-    role.includes('admin');
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
     setErrorMessage('');
 
-    const cleanEmail = resolveEmail(email);
+    let cleanEmail = (email || '').trim().toLowerCase();
+    
+    if (cleanEmail === 'student') cleanEmail = 'student@slms.com';
+    if (cleanEmail === 'faculty') cleanEmail = 'faculty@slms.com';
+    if (cleanEmail === 'admin') cleanEmail = 'admin@slms.com';
+    if (cleanEmail === 'librarian') cleanEmail = 'librarian@slms.com';
 
-    // Admin/Librarian portal yahan se block hai (Angular admin console ke liye)
-    if (cleanEmail === 'admin@slms.com' || cleanEmail === 'librarian@slms.com') {
-      setLoading(false);
-      setErrorMessage('Invalid email or password. Please check your credentials.');
-      return;
-    }
+    const res = await login(cleanEmail, password);
+    setLoading(false);
 
-    try {
-      const res = await login(cleanEmail, password);
-
-      if (res.success) {
-        const userRole = res.user?.role || '';
-        if (isBlockedRole(userRole)) {
-          localStorage.removeItem('slms_token');
-          localStorage.removeItem('slms_user');
-          setErrorMessage('Invalid email or password. Please check your credentials.');
-          return;
-        }
-        navigate('/');
+    if (res.success) {
+      const userRole = res.user?.role || '';
+      
+      // ✅ SMART REDIRECT BASED ON ROLE
+      if (['super_admin', 'admin', 'librarian'].includes(userRole)) {
+        // Admin/Librarian → Angular Console
+        window.location.href = '/admin';
       } else {
-        setErrorMessage(res.message || 'Invalid email or password. Please check your credentials.');
+        // Student/Faculty → React Dashboard
+        navigate('/');
       }
-    } catch (err) {
-      setErrorMessage('Something went wrong. Please try again.');
-    } finally {
-      setLoading(false);
+    } else {
+      setErrorMessage(res.message || 'Invalid email or password. Please check your credentials.');
     }
-  };
-
-  // Quick demo fill (testing/demo ke liye)
-  const fillDemo = (demoEmail, demoPass) => {
-    setEmail(demoEmail);
-    setPassword(demoPass);
-    setErrorMessage('');
   };
 
   return (
@@ -124,21 +95,13 @@ export default function Login() {
             <div className="relative">
               <Lock className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-500" />
               <input
-                type={showPassword ? 'text' : 'password'}
+                type="password"
                 required
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="w-full pl-10 pr-11 py-2.5 text-xs bg-slate-800/80 border border-slate-700 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                className="w-full pl-10 pr-4 py-2.5 text-xs bg-slate-800/80 border border-slate-700 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
                 placeholder="••••••••"
               />
-              <button
-                type="button"
-                onClick={() => setShowPassword(!showPassword)}
-                className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 transition-colors"
-                aria-label={showPassword ? 'Hide password' : 'Show password'}
-              >
-                {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-              </button>
             </div>
           </div>
 
@@ -150,25 +113,6 @@ export default function Login() {
             <LogIn className="w-4 h-4" /> {loading ? 'Authenticating...' : 'Sign In'}
           </button>
         </form>
-
-        {/* Quick Demo Logins (seed ke baad kaam karenge) */}
-        <div className="flex items-center gap-2">
-          <span className="text-[10px] text-slate-500 font-semibold">Demo:</span>
-          <button
-            type="button"
-            onClick={() => fillDemo('student@slms.com', 'student123')}
-            className="px-3 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-[10px] text-slate-300 hover:border-indigo-500 hover:text-indigo-300 transition-all"
-          >
-            🎓 Student
-          </button>
-          <button
-            type="button"
-            onClick={() => fillDemo('faculty@slms.com', 'faculty123')}
-            className="px-3 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-[10px] text-slate-300 hover:border-indigo-500 hover:text-indigo-300 transition-all"
-          >
-            👨‍🏫 Faculty
-          </button>
-        </div>
 
         <div className="pt-4 border-t border-slate-800 flex items-center justify-center gap-1.5 text-xs text-slate-400">
           <span>Don't have an account?</span>
