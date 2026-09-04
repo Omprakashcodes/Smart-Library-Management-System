@@ -34,65 +34,69 @@ app.use(
 app.use(compression());
 
 // ============================================================
-// ✅ FIXED: Dynamic CORS Configuration for Production & Dev
+// ✅ CORS Configuration (Fixed - No Duplicates)
 // ============================================================
+
+// Helper to parse comma-separated URLs from .env
 const parseOrigins = (val) => {
   if (!val) return [];
   return val.split(',').map((s) => s.trim()).filter(Boolean);
 };
 
-// Build list of allowed origins
-// Supports: CLIENT_URL, ADMIN_URL, FRONTEND_URL (for flexibility)
-let allowedOrigins = [
-  // Environment variables from Render/Vercel
+// Build allowed origins list from multiple sources (no duplicates)
+const rawOrigins = [
+  // Environment variables (Render/Vercel)
   ...parseOrigins(process.env.CLIENT_URL),
-  ...parseOrigins(process.env.ADMIN_URL), 
-  ...parseOrigins(process.env.FRONTEND_URL), // Added support for FRONTEND_URL
+  ...parseOrigins(process.env.ADMIN_URL),
+  ...parseOrigins(process.env.FRONTEND_URL), // Support for FRONTEND_URL
   
-  // Local development ports
+  // Local development
   'http://localhost:5173',   // Vite default
-  'http://localhost:4200',   // Angular default
+  'http://localhost:4200',   // Angular default  
   'http://localhost:3000',   // React default
-  'http://localhost:5000',   // Backend port (if serving static)
-  
-  // Remove duplicates
-].filter((v, i, a) => a.indexOf(v) === i);
+  'http://localhost:5000',
+];
 
-console.log('[CORS] Allowed Origins:', allowedOrigins); // Debug log to verify on Render
+// Remove duplicates and filter empty values
+const allowedOrigins = [...new Set(rawOrigins.filter(Boolean))];
+
+console.log('[CORS] Allowed Origins:', allowedOrigins);
 
 app.use(
   cors({
     origin: function (origin, callback) {
-      // Allow requests with no origin (mobile apps, Postman, curl, server-to-server)
+      // 1. Allow requests with no origin (Postman, mobile apps, curl)
       if (!origin) {
         return callback(null, true);
       }
       
-      // Check if origin is explicitly allowed
+      // 2. Check explicitly allowed list
       if (allowedOrigins.includes(origin)) {
         return callback(null, true);
       }
       
-      // ⭐ NEW: Allow all vercel.app domains (regex match for subdomains)
-      if (origin.match(/https:\/\/.*\.vercel\.app$/) || 
-          origin.match(/https:\/\/.*\.onrender\.com$/)) {
+      // 3. Wildcard: allow all vercel.app & render.com subdomains
+      if (
+        origin.match(/https:\/\/.*\.vercel\.app$/) || 
+        origin.match(/https:\/\/.*\.onrender\.com$/)
+      ) {
         return callback(null, true);
       }
       
-      // In non-production (development), allow everything
+      // 4. Development mode: allow everything
       if (process.env.NODE_ENV !== 'production') {
-        console.log('[CORS] Allowing dev origin:', origin);
+        console.log('[CORS] Dev mode: Allowing origin:', origin);
         return callback(null, true);
       }
       
-      // Block in production
+      // 5. Block in production
       console.error('[CORS] Blocked origin:', origin);
       callback(new Error('Not allowed by CORS'), false);
     },
-    credentials: true, // Important for cookies/auth tokens
+    credentials: true, // Required for cookies/auth tokens
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept'],
-    exposedHeaders: ['Authorization'] // If you send custom headers back
+    exposedHeaders: ['Authorization']
   })
 );
 
@@ -132,7 +136,7 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 app.use(morgan('dev'));
 
-// API Routes (Mounted flexibly under /api/v1, /api, and root for platform compatibility)
+// API Routes
 const registerRoutes = (prefix) => {
   app.use(`${prefix}/auth`, authRoutes);
   app.use(`${prefix}/users`, userRoutes);
@@ -157,11 +161,11 @@ app.get(['/api/health', '/api/v1/health', '/health', '/api', '/api/v1'], (req, r
     version: '1.0.0',
     environment: process.env.NODE_ENV || 'production',
     timestamp: new Date().toISOString(),
-    corsAllowed: allowedOrigins // Helpful for debugging
+    corsAllowed: allowedOrigins
   });
 });
 
-// Helper to resolve static paths safely
+// Static path resolver
 function resolveStaticPath(relativeSubPath) {
   try {
     const candidatePaths = [
@@ -177,7 +181,7 @@ function resolveStaticPath(relativeSubPath) {
   return null;
 }
 
-// Serve Angular Admin Console Static Assets (/admin)
+// Serve Angular Admin Console (/admin)
 app.use('/admin', (req, res, next) => {
   const angularDistPath = resolveStaticPath('frontend-react/dist/admin/browser') || 
                           resolveStaticPath('frontend-react/dist/admin') || 
@@ -201,7 +205,7 @@ app.get(['/admin', '/admin/*'], (req, res, next) => {
   next(new AppError('Admin console build files not found', 404));
 });
 
-// Serve React Student Portal Static Assets (/)
+// Serve React Student Portal (/)
 app.use((req, res, next) => {
   if (req.path.startsWith('/api') || req.path.startsWith('/admin')) return next();
   const reactDistPath = resolveStaticPath('frontend-react/dist');
@@ -212,6 +216,7 @@ app.use((req, res, next) => {
   }
 });
 
+// Catch-all route
 app.get('*', (req, res, next) => {
   const url = req.originalUrl || req.url || '';
   if (url.startsWith('/api') || url.startsWith('/auth') || url.startsWith('/users') || 
