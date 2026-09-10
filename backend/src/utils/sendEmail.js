@@ -1,22 +1,28 @@
-const nodemailer = require('nodemailer');
-
 const sendEmail = async (options) => {
-  const transporter = nodemailer.createTransport({
-    service: 'Gmail',
-    auth: {
-      user: process.env.EMAIL_USER,
-      pass: process.env.EMAIL_PASS,
+  const response = await fetch('https://api.brevo.com/v3/smtp/email', {
+    method: 'POST',
+    headers: {
+      'api-key': process.env.BREVO_API_KEY,
+      'Content-Type': 'application/json',
+      'accept': 'application/json'
     },
+    body: JSON.stringify({
+      sender: {
+        name: 'Smart Library System',
+        email: process.env.EMAIL_USER
+      },
+      to: [{ email: options.email }],
+      subject: options.subject,
+      htmlContent: options.html
+    })
   });
 
-  const mailOptions = {
-    from: `Smart Library System <${process.env.EMAIL_USER}>`,
-    to: options.email,
-    subject: options.subject,
-    html: options.html,
-  };
+  if (!response.ok) {
+    const errText = await response.text();
+    throw new Error(`Brevo email failed: ${response.status} - ${errText}`);
+  }
 
-  await transporter.sendMail(mailOptions);
+  console.log('[EMAIL] ✅ Sent via Brevo to:', options.email);
 };
 
 module.exports = sendEmail;

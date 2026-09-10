@@ -7,6 +7,11 @@ const escapeRegExp = require('../utils/escapeRegExp');
 
 const getAllBooks = async (req, res, next) => {
   try {
+      const db = mongoose.connection.db;
+    console.log('🔍 [BOOKS_DEBUG] Database Name:', db.databaseName);
+    console.log('🔍 [BOOKS_DEBUG] Request Query:', req.query);
+    console.log('🔍 [BOOKS_DEBUG] User ID:', req.user?.id);
+    
     const page = parseInt(req.query.page, 10) || 1;
     const limit = parseInt(req.query.limit, 10) || 50;
     const search = req.query.search || '';

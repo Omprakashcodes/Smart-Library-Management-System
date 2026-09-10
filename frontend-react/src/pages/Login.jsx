@@ -32,7 +32,7 @@ export default function Login() {
       // ✅ SMART REDIRECT BASED ON ROLE
       if (['super_admin', 'admin', 'librarian'].includes(userRole)) {
         // Admin/Librarian → Angular Console
-        window.location.href = '/admin';
+        window.location.href = '/dashboard';
       } else {
         // Student/Faculty → React Dashboard
         navigate('/');
