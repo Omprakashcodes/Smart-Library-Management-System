@@ -11,8 +11,12 @@ export default function Dashboard() {
   const [activeLoansCount, setActiveLoansCount] = useState(0);
   const [unpaidFineAmount, setUnpaidFineAmount] = useState(0);
   const [activeHoldsCount, setActiveHoldsCount] = useState(0);
-  const [approvedHoldsCount, setApprovedHoldsCount] = useState(0); // 🆕 Ready for pickup
+  const [approvedHoldsCount, setApprovedHoldsCount] = useState(0);
   const [totalBorrowedCount, setTotalBorrowedCount] = useState(0);
+
+  // 🆕 BookCard wiring ke liye (Catalog jaisa same)
+  const [myReservations, setMyReservations] = useState({});
+  const [processingId, setProcessingId] = useState(null);
 
   const [selectedBook, setSelectedBook] = useState(null);
   const [reservationMessage, setReservationMessage] = useState('');
@@ -46,24 +50,51 @@ export default function Dashboard() {
       }
       if (holdsRes.data?.success) {
         const holds = Array.isArray(holdsRes.data.data) ? holdsRes.data.data : [];
-        // 🔧 FIX: Active Holds = pending + approved (dono active hote hain)
+
         const pendingCount = holds.filter((h) => h.status === 'pending').length;
         const approvedCount = holds.filter((h) => h.status === 'approved').length;
         setActiveHoldsCount(pendingCount + approvedCount);
-        setApprovedHoldsCount(approvedCount); // 🆕 alag se approved count track karo
+        setApprovedHoldsCount(approvedCount);
+
+        // 🆕 BookCard ke liye reservation map banao (bookId → status)
+        const map = {};
+        holds.forEach((h) => {
+          const bookId = h.book?._id || h.book;
+          if (bookId && (h.status === 'pending' || h.status === 'approved' || h.status === 'fulfilled')) {
+            map[bookId] = { status: h.status, queuePosition: h.queuePosition };
+          }
+        });
+        setMyReservations(map);
       }
     } catch (err) {}
   };
 
+  // 🔄 UPDATED: double-click guard + instant status update
   const handleReserve = async (book) => {
+    if (processingId) return; // 🛡️ ek request already chal rahi hai
+    setProcessingId(book._id);
+    setReservationMessage('');
+
     try {
       const res = await api.post('/reservations', { bookId: book._id });
       if (res.data.success) {
-        setReservationMessage(`Hold reservation placed for "${book.title}". Queue position #${res.data.data.queuePosition}.`);
-        fetchDashboardData();
+        // Turant UI mein Pending dikhao — bina refresh ke
+        setMyReservations((prev) => ({
+          ...prev,
+          [book._id]: { status: 'pending', queuePosition: res.data.data.queuePosition }
+        }));
+        setReservationMessage(`Hold placed for "${book.title}". Queue #${res.data.data.queuePosition} — waiting for admin approval.`);
+        fetchDashboardData(); // counts refresh
       }
     } catch (err) {
-      setReservationMessage(err.response?.data?.message || `Reserved "${book.title}". You will be notified when available.`);
+      const msg = err.response?.data?.message || '';
+      // Backend ne bola "already reserved" → bhi Pending dikha do
+      if (msg.toLowerCase().includes('already')) {
+        setMyReservations((prev) => ({ ...prev, [book._id]: { status: 'pending' } }));
+      }
+      setReservationMessage(msg || `Could not reserve "${book.title}". Please try again.`);
+    } finally {
+      setProcessingId(null);
     }
     setTimeout(() => setReservationMessage(''), 6000);
   };
@@ -74,7 +105,6 @@ export default function Dashboard() {
     {
       label: 'Active Holds Queue',
       value: `${activeHoldsCount}`,
-      // 🆕 Approved ho toh green highlight — "Ready for Pickup!"
       status: approvedHoldsCount > 0 ? `🎁 ${approvedHoldsCount} Ready for Pickup!` : 'Hold Reservations',
       icon: Bookmark,
       color: approvedHoldsCount > 0 ? 'from-emerald-500 to-teal-500' : 'from-amber-500 to-orange-500'
@@ -117,7 +147,7 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* 🆕 READY FOR PICKUP Alert Banner — jab admin approve kare toh sabse upar dikhe! */}
+      {/* READY FOR PICKUP Alert Banner */}
       {approvedHoldsCount > 0 && (
         <Link to="/my-reservations" className="block">
           <div className="flex items-center gap-4 p-5 rounded-2xl bg-gradient-to-r from-emerald-500/15 to-teal-500/10 border border-emerald-500/40 hover:border-emerald-400/60 transition-all shadow-lg shadow-emerald-500/10">
@@ -137,7 +167,7 @@ export default function Dashboard() {
         </Link>
       )}
 
-      {/* Top Middle Floating Toast Popup */}
+      {/* Toast Popup */}
       {reservationMessage && (
         <div className="fixed top-6 left-1/2 -translate-x-1/2 z-[100] bg-slate-900 border border-indigo-500/50 text-white px-6 py-3.5 rounded-2xl shadow-2xl flex items-center gap-3 animate-in slide-in-from-top-5 max-w-md w-11/12">
           <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
@@ -192,6 +222,9 @@ export default function Dashboard() {
                 book={book}
                 onReserve={handleReserve}
                 onSelect={(b) => setSelectedBook(b)}
+                reservationStatus={myReservations[book._id]?.status}
+                queuePosition={myReservations[book._id]?.queuePosition}
+                isProcessing={processingId === book._id}
               />
             ))}
           </div>
@@ -226,15 +259,32 @@ export default function Dashboard() {
               <button onClick={() => setSelectedBook(null)} className="px-4 py-2 text-xs font-semibold text-slate-400 hover:text-white">
                 Close
               </button>
-              <button
-                onClick={() => {
-                  handleReserve(selectedBook);
-                  setSelectedBook(null);
-                }}
-                className="px-5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold shadow-lg shadow-indigo-600/30"
-              >
-                Confirm Hold / Borrow Request
-              </button>
+
+              {/* 🆕 Modal button bhi status-aware */}
+              {myReservations[selectedBook._id]?.status === 'pending' ? (
+                <span className="px-5 py-2 rounded-xl bg-amber-500/15 text-amber-400 border border-amber-500/30 text-xs font-semibold">
+                  🕐 Pending Approval
+                </span>
+              ) : myReservations[selectedBook._id]?.status === 'approved' ? (
+                <span className="px-5 py-2 rounded-xl bg-indigo-500/15 text-indigo-400 border border-indigo-500/30 text-xs font-semibold">
+                  ✅ Approved · Collect from Desk
+                </span>
+              ) : myReservations[selectedBook._id]?.status === 'fulfilled' ? (
+                <span className="px-5 py-2 rounded-xl bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 text-xs font-semibold">
+                  ✅ Approved
+                </span>
+              ) : (
+                <button
+                  onClick={() => {
+                    handleReserve(selectedBook);
+                    setSelectedBook(null);
+                  }}
+                  disabled={processingId === selectedBook._id}
+                  className="px-5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold shadow-lg shadow-indigo-600/30 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {processingId === selectedBook._id ? 'Processing...' : 'Confirm Hold / Borrow Request'}
+                </button>
+              )}
             </div>
           </div>
         </div>
