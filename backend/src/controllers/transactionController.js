@@ -55,7 +55,17 @@ const issueBook = async (req, res, next) => {
       return ApiResponse.error(res, `Book not found with ISBN / Title "${bookIdentifier}"`, 404);
     }
 
-    if (book.availableCopies <= 0) {
+    // 🆕 SABSE PEHLE check: kya is student ki APPROVED reservation hai is book par?
+    // Agar hai toh uski copy approval ke waqt hi reserve ho chuki hai
+    const approvedReservation = await Reservation.findOne({
+      user: user._id,
+      book: book._id,
+      status: 'approved'
+    });
+
+    // 🛡️ Stock guard — approved reservation wale student ke liye SKIP
+    // (unki copy pehle se reserved hai, unhe "out of stock" nahi bol sakte)
+    if (!approvedReservation && book.availableCopies <= 0) {
       return ApiResponse.error(res, `Book "${book.title}" is currently out of stock.`, 400);
     }
 
@@ -83,15 +93,28 @@ const issueBook = async (req, res, next) => {
       dueDate
     });
 
-    // Atomic decrement of available copies
-    book.availableCopies = Math.max(0, book.availableCopies - 1);
-    await book.save();
+    // 🆕 STOCK HANDLING — double decrement se bachna hai
+    if (approvedReservation) {
+      // Copy approval ke waqt hi reserve ho chuki thi — sirf fulfill karo, decrement MAT karo
+      approvedReservation.status = 'fulfilled';
+      await approvedReservation.save();
 
-    // Auto-fulfill any pending hold reservation for this user and book
-        await Reservation.updateMany(
-      { user: user._id, book: book._id, status: { $in: ['pending', 'approved'] } },
-      { status: 'fulfilled' }
-    );
+      // Edge case: pending reservations bhi ho toh fulfill kar do
+      await Reservation.updateMany(
+        { user: user._id, book: book._id, status: 'pending' },
+        { status: 'fulfilled' }
+      );
+    } else {
+      // Normal walk-in issue — stock decrement karo
+      book.availableCopies = Math.max(0, book.availableCopies - 1);
+      await book.save();
+
+      // Auto-fulfill any pending/approved hold reservations for this user and book
+      await Reservation.updateMany(
+        { user: user._id, book: book._id, status: { $in: ['pending', 'approved'] } },
+        { status: 'fulfilled' }
+      );
+    }
 
     await Notification.create({
       recipient: user._id,
@@ -104,7 +127,12 @@ const issueBook = async (req, res, next) => {
       performedBy: req.user ? req.user.id : user._id,
       action: 'ISSUE_BOOK',
       module: 'TRANSACTIONS',
-      details: { transactionId: transaction._id, userId: user._id, bookId: book._id }
+      details: {
+        transactionId: transaction._id,
+        userId: user._id,
+        bookId: book._id,
+        fromApprovedHold: !!approvedReservation
+      }
     });
 
     return ApiResponse.success(res, transaction, `Book "${book.title}" issued to ${user.fullName} (${user.memberId}) successfully!`, 201);
@@ -153,7 +181,6 @@ const returnBook = async (req, res, next) => {
       book.availableCopies = Math.min(book.totalCopies, book.availableCopies + 1);
       await book.save();
 
-      // Check if there are pending reservations for this book & notify top queue user
       const topReservation = await Reservation.findOne({ book: book._id, status: 'pending' }).sort({ queuePosition: 1 }).populate('user');
       if (topReservation && topReservation.user) {
         await Notification.create({
@@ -204,12 +231,10 @@ const returnBook = async (req, res, next) => {
 };
 
 // ============================================================
-// 🆕 MARK BOOK AS LOST — Admin/Librarian ONLY
-// Penalty + inventory update + notification + audit
+// MARK BOOK AS LOST — Admin/Librarian ONLY
 // ============================================================
 const markBookLost = async (req, res, next) => {
   try {
-    // Role Guard — sirf staff mark kar sakta hai
     const allowedRoles = ['super_admin', 'admin', 'librarian'];
     if (!req.user || !allowedRoles.includes(req.user.role)) {
       return ApiResponse.error(res, 'Only admin/librarian can mark books as lost.', 403);
@@ -239,13 +264,11 @@ const markBookLost = async (req, res, next) => {
       return ApiResponse.error(res, 'This book has already been returned.', 400);
     }
 
-    // 1️⃣ Transaction ko LOST mark karo
     transaction.status = 'lost';
     transaction.returnDate = new Date();
     transaction.notes = `Marked LOST by staff on ${new Date().toDateString()}`;
     await transaction.save();
 
-    // 2️⃣ Book inventory se permanently remove karo
     const book = await Book.findById(transaction.book._id);
     if (book) {
       book.totalCopies = Math.max(0, book.totalCopies - 1);
@@ -253,7 +276,6 @@ const markBookLost = async (req, res, next) => {
       await book.save();
     }
 
-    // 3️⃣ Penalty fine create karo
     const defaultPenalty = parseFloat(process.env.LOST_BOOK_PENALTY) || 500;
     const amount = Number(penaltyAmount) > 0 ? Number(penaltyAmount) : defaultPenalty;
 
@@ -266,7 +288,6 @@ const markBookLost = async (req, res, next) => {
       status: 'unpaid'
     });
 
-    // 4️⃣ Student ko notification
     await Notification.create({
       recipient: transaction.user._id,
       title: 'Lost Book Penalty Incurred',
@@ -274,7 +295,6 @@ const markBookLost = async (req, res, next) => {
       type: 'fine_added'
     });
 
-    // 5️⃣ Audit trail
     await AuditLog.create({
       performedBy: req.user.id,
       action: 'MARK_BOOK_LOST',
