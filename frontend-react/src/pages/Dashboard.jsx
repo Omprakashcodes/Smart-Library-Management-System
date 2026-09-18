@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { BookOpen, AlertCircle, Bookmark, ArrowRight, Sparkles, TrendingUp, User, X, CheckCircle2 } from 'lucide-react';
+import { BookOpen, AlertCircle, Bookmark, ArrowRight, Sparkles, TrendingUp, User, X, CheckCircle2, PackageCheck } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import BookCard from '../components/BookCard';
 import api from '../services/api';
@@ -11,6 +11,7 @@ export default function Dashboard() {
   const [activeLoansCount, setActiveLoansCount] = useState(0);
   const [unpaidFineAmount, setUnpaidFineAmount] = useState(0);
   const [activeHoldsCount, setActiveHoldsCount] = useState(0);
+  const [approvedHoldsCount, setApprovedHoldsCount] = useState(0); // 🆕 Ready for pickup
   const [totalBorrowedCount, setTotalBorrowedCount] = useState(0);
 
   const [selectedBook, setSelectedBook] = useState(null);
@@ -45,7 +46,11 @@ export default function Dashboard() {
       }
       if (holdsRes.data?.success) {
         const holds = Array.isArray(holdsRes.data.data) ? holdsRes.data.data : [];
-        setActiveHoldsCount(holds.filter((h) => h.status === 'pending').length);
+        // 🔧 FIX: Active Holds = pending + approved (dono active hote hain)
+        const pendingCount = holds.filter((h) => h.status === 'pending').length;
+        const approvedCount = holds.filter((h) => h.status === 'approved').length;
+        setActiveHoldsCount(pendingCount + approvedCount);
+        setApprovedHoldsCount(approvedCount); // 🆕 alag se approved count track karo
       }
     } catch (err) {}
   };
@@ -66,7 +71,14 @@ export default function Dashboard() {
   const stats = [
     { label: 'Active Borrowed Books', value: `${activeLoansCount}`, limit: user?.role === 'faculty' ? '7' : '3', icon: BookOpen, color: 'from-indigo-500 to-violet-500' },
     { label: 'Unpaid Fines Balance', value: `₹${unpaidFineAmount.toFixed(2)}`, status: unpaidFineAmount === 0 ? 'Account Clear' : 'Action Required', icon: AlertCircle, color: unpaidFineAmount === 0 ? 'from-emerald-500 to-teal-500' : 'from-rose-500 to-red-500' },
-    { label: 'Active Holds Queue', value: `${activeHoldsCount}`, status: 'Hold Reservations', icon: Bookmark, color: 'from-amber-500 to-orange-500' },
+    {
+      label: 'Active Holds Queue',
+      value: `${activeHoldsCount}`,
+      // 🆕 Approved ho toh green highlight — "Ready for Pickup!"
+      status: approvedHoldsCount > 0 ? `🎁 ${approvedHoldsCount} Ready for Pickup!` : 'Hold Reservations',
+      icon: Bookmark,
+      color: approvedHoldsCount > 0 ? 'from-emerald-500 to-teal-500' : 'from-amber-500 to-orange-500'
+    },
     { label: 'Total Books Borrowed', value: `${totalBorrowedCount}`, status: 'Lifetime History', icon: TrendingUp, color: 'from-blue-500 to-cyan-500' }
   ];
 
@@ -105,6 +117,26 @@ export default function Dashboard() {
         </div>
       </div>
 
+      {/* 🆕 READY FOR PICKUP Alert Banner — jab admin approve kare toh sabse upar dikhe! */}
+      {approvedHoldsCount > 0 && (
+        <Link to="/my-reservations" className="block">
+          <div className="flex items-center gap-4 p-5 rounded-2xl bg-gradient-to-r from-emerald-500/15 to-teal-500/10 border border-emerald-500/40 hover:border-emerald-400/60 transition-all shadow-lg shadow-emerald-500/10">
+            <div className="w-12 h-12 rounded-2xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0 border border-emerald-500/30">
+              <PackageCheck className="w-6 h-6" />
+            </div>
+            <div className="flex-1">
+              <div className="text-sm font-bold text-emerald-400">
+                🎉 {approvedHoldsCount} book{approvedHoldsCount > 1 ? 's' : ''} approved — ready for pickup!
+              </div>
+              <div className="text-xs text-slate-400 mt-0.5">
+                Your hold request has been approved by the librarian. Please collect from the library desk within 2 days.
+              </div>
+            </div>
+            <ArrowRight className="w-5 h-5 text-emerald-400 shrink-0" />
+          </div>
+        </Link>
+      )}
+
       {/* Top Middle Floating Toast Popup */}
       {reservationMessage && (
         <div className="fixed top-6 left-1/2 -translate-x-1/2 z-[100] bg-slate-900 border border-indigo-500/50 text-white px-6 py-3.5 rounded-2xl shadow-2xl flex items-center gap-3 animate-in slide-in-from-top-5 max-w-md w-11/12">
@@ -126,7 +158,7 @@ export default function Dashboard() {
                   {stat.value}
                   {stat.limit && <span className="text-xs text-slate-400 font-normal"> / {stat.limit}</span>}
                 </div>
-                {stat.status && <div className="text-[11px] font-semibold text-indigo-500 mt-1">{stat.status}</div>}
+                {stat.status && <div className={`text-[11px] font-semibold mt-1 ${approvedHoldsCount > 0 && stat.label === 'Active Holds Queue' ? 'text-emerald-400' : 'text-indigo-500'}`}>{stat.status}</div>}
               </div>
               <div className={`w-12 h-12 rounded-2xl bg-gradient-to-tr ${stat.color} flex items-center justify-center text-white shadow-md`}>
                 <Icon className="w-6 h-6" />
