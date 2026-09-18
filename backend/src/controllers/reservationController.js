@@ -1,6 +1,7 @@
 const Reservation = require('../models/Reservation');
 const Book = require('../models/Book');
 const BorrowTransaction = require('../models/BorrowTransaction');
+const Notification = require('../models/Notification');
 const ApiResponse = require('../utils/apiResponse');
 const AuditLog = require('../models/AuditLog');
 const mongoose = require('mongoose');
@@ -16,20 +17,19 @@ const createReservation = async (req, res, next) => {
     const existingReservation = await Reservation.findOne({
       user: userId,
       book: bookId,
-      status: 'pending'
+      status: { $in: ['pending', 'approved'] }
     });
 
     if (existingReservation) {
       return ApiResponse.error(res, 'You already have an active hold reservation for this book', 400);
     }
 
-    // Check if user already has an active issued loan for this book
     const activeLoan = await BorrowTransaction.findOne({ user: userId, book: bookId, status: 'issued' });
     if (activeLoan) {
       return ApiResponse.error(res, 'You currently have an active borrowed loan for this book.', 400);
     }
 
-    const pendingCount = await Reservation.countDocuments({ book: bookId, status: 'pending' });
+    const pendingCount = await Reservation.countDocuments({ book: bookId, status: { $in: ['pending', 'approved'] } });
 
     const reservation = await Reservation.create({
       user: userId,
@@ -52,8 +52,8 @@ const createReservation = async (req, res, next) => {
 
 const getMyReservations = async (req, res, next) => {
   try {
-    // Dynamic Sync: auto-fulfill any pending reservations if an active loan exists
-    const pendingResList = await Reservation.find({ user: req.user.id, status: 'pending' });
+    // Dynamic Sync: auto-fulfill any pending/approved reservations if an active loan exists
+    const pendingResList = await Reservation.find({ user: req.user.id, status: { $in: ['pending', 'approved'] } });
     for (const r of pendingResList) {
       const activeLoan = await BorrowTransaction.findOne({ user: req.user.id, book: r.book, status: 'issued' });
       if (activeLoan) {
@@ -62,12 +62,12 @@ const getMyReservations = async (req, res, next) => {
       }
     }
 
-    // Return ONLY active pending hold queue reservations
-    const reservations = await Reservation.find({ user: req.user.id, status: 'pending' })
+    // Return active (pending + approved) hold queue reservations
+    const reservations = await Reservation.find({ user: req.user.id, status: { $in: ['pending', 'approved'] } })
       .populate('book', 'title isbn authors coverImageUrl availableCopies status')
       .sort({ createdAt: -1 });
 
-    return ApiResponse.success(res, reservations, 'Pending hold reservations fetched');
+    return ApiResponse.success(res, reservations, 'Active hold reservations fetched');
   } catch (error) {
     next(error);
   }
@@ -81,8 +81,8 @@ const getAllReservations = async (req, res, next) => {
       query.status = status;
     }
 
-    // Dynamic Sync: auto-fulfill pending reservations system-wide if loans are issued
-    const pendingResList = await Reservation.find({ status: 'pending' });
+    // Dynamic Sync: auto-fulfill pending/approved reservations system-wide if loans are issued
+    const pendingResList = await Reservation.find({ status: { $in: ['pending', 'approved'] } });
     for (const r of pendingResList) {
       const activeLoan = await BorrowTransaction.findOne({ user: r.user, book: r.book, status: 'issued' });
       if (activeLoan) {
@@ -97,6 +97,52 @@ const getAllReservations = async (req, res, next) => {
       .sort({ createdAt: -1 });
 
     return ApiResponse.success(res, reservations, 'All student reservation queues fetched');
+  } catch (error) {
+    next(error);
+  }
+};
+
+// ============================================================
+// 🆕 APPROVE RESERVATION — Admin/Librarian ONLY
+// Student ko notification: "Collect from Desk"
+// ============================================================
+const approveReservation = async (req, res, next) => {
+  try {
+    const reservation = await Reservation.findById(req.params.id).populate('book user');
+
+    if (!reservation) {
+      return ApiResponse.error(res, 'Reservation not found', 404);
+    }
+
+    if (reservation.status !== 'pending') {
+      return ApiResponse.error(res, `Only pending reservations can be approved. Current status: ${reservation.status}`, 400);
+    }
+
+    reservation.status = 'approved';
+    reservation.approvedAt = new Date();
+    reservation.approvedBy = req.user.id;
+    await reservation.save();
+
+    // Student ko notification — desk par collect karne ke liye
+    await Notification.create({
+      recipient: reservation.user._id,
+      title: 'Hold Request Approved! ✅',
+      message: `Your hold request for "${reservation.book.title}" has been APPROVED. Please collect the book from the library desk within 2 days.`,
+      type: 'system'
+    });
+
+    await AuditLog.create({
+      performedBy: req.user.id,
+      action: 'APPROVE_RESERVATION',
+      module: 'RESERVATIONS',
+      details: {
+        reservationId: reservation._id,
+        bookTitle: reservation.book.title,
+        studentEmail: reservation.user.email
+      }
+    });
+
+    return ApiResponse.success(res, reservation, `Hold approved for ${reservation.user.fullName}. Student notified to collect the book.`);
   } catch (error) {
     next(error);
   }
@@ -129,11 +175,8 @@ const cancelReservation = async (req, res, next) => {
 };
 
 // ============================================================
-// 🆕 BOOK QUEUE STATUS — Kisi bhi book ki live availability info
-// Nearest return date + hold queue list (privacy-masked names)
+// BOOK QUEUE STATUS — nearest return + privacy-masked queue
 // ============================================================
-
-// Helper: privacy ke liye naam mask karo — "Anuj Srivastav" → "Anuj S."
 const maskName = (fullName) => {
   if (!fullName) return 'Member';
   const parts = fullName.trim().split(' ');
@@ -149,7 +192,6 @@ const getBookQueueStatus = async (req, res, next) => {
       return ApiResponse.error(res, 'Invalid book ID.', 400);
     }
 
-    // 1️⃣ Is book ki saari issued copies — sabse jaldi return hone wali upar
     const activeLoans = await BorrowTransaction.find({
       book: bookId,
       status: 'issued'
@@ -159,10 +201,10 @@ const getBookQueueStatus = async (req, res, next) => {
 
     const nearestReturnDate = activeLoans.length > 0 ? activeLoans[0].dueDate : null;
 
-    // 2️⃣ Hold queue — position ke order mein
+    // Queue mein pending + approved dono active hote hain
     const queue = await Reservation.find({
       book: bookId,
-      status: 'pending'
+      status: { $in: ['pending', 'approved'] }
     })
       .populate('user', 'fullName memberId')
       .sort({ queuePosition: 1 });
@@ -173,6 +215,7 @@ const getBookQueueStatus = async (req, res, next) => {
         position: r.queuePosition,
         memberName: isYou ? 'You' : maskName(r.user?.fullName),
         isYou,
+        status: r.status,
         reservedOn: r.createdAt
       };
     });
@@ -196,6 +239,7 @@ module.exports = {
   createReservation,
   getMyReservations,
   getAllReservations,
+  approveReservation,
   cancelReservation,
   getBookQueueStatus
 };

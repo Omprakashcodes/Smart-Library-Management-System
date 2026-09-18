@@ -43,7 +43,7 @@ export default function Catalog({ searchTerm }) {
         const map = {};
         (res.data.data || []).forEach((r) => {
           const bookId = r.book?._id || r.book;
-          if (bookId && (r.status === 'pending' || r.status === 'fulfilled')) {
+          if (bookId && (r.status === 'pending' || r.status === 'approved' || r.status === 'fulfilled')) {
             map[bookId] = { status: r.status, queuePosition: r.queuePosition };
           }
         });

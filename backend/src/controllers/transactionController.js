@@ -88,8 +88,8 @@ const issueBook = async (req, res, next) => {
     await book.save();
 
     // Auto-fulfill any pending hold reservation for this user and book
-    await Reservation.updateMany(
-      { user: user._id, book: book._id, status: 'pending' },
+        await Reservation.updateMany(
+      { user: user._id, book: book._id, status: { $in: ['pending', 'approved'] } },
       { status: 'fulfilled' }
     );
 

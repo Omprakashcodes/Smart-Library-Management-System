@@ -18,12 +18,19 @@ const reservationSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ['pending', 'fulfilled', 'cancelled', 'expired'],
+      enum: ['pending', 'approved', 'fulfilled', 'cancelled', 'expired'],
       default: 'pending'
     },
     queuePosition: {
       type: Number,
       default: 1
+    },
+    approvedAt: {
+      type: Date
+    },
+    approvedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User'
     },
     notifiedAt: {
       type: Date

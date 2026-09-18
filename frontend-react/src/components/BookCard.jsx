@@ -31,6 +31,15 @@ export default function BookCard({
       );
     }
 
+        if (reservationStatus === 'approved') {
+      return (
+        <span className="px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 bg-indigo-500/15 text-indigo-400 border border-indigo-500/30 cursor-not-allowed select-none">
+          <BadgeCheck className="w-3.5 h-3.5" />
+          Approved · Collect from Desk
+        </span>
+      );
+    }
+
     if (reservationStatus === 'fulfilled') {
       return (
         <span className="px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 bg-emerald-500/15 text-emerald-500 border border-emerald-500/30 cursor-not-allowed select-none">

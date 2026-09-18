@@ -4,6 +4,7 @@ const {
   createReservation,
   getMyReservations,
   getAllReservations,
+  approveReservation,
   cancelReservation,
   getBookQueueStatus
 } = require('../controllers/reservationController');
@@ -15,10 +16,14 @@ router.use(protect);
 router.post('/', createReservation);
 router.get('/my-reservations', getMyReservations);
 
-// 🆕 Book queue status — '/:id' wali routes se PEHLE rakhna zaroori
+// Book queue status — '/:id' wali routes se PEHLE rakhna zaroori
 router.get('/book/:bookId/queue', getBookQueueStatus);
 
 router.get('/', restrictTo('super_admin', 'librarian'), getAllReservations);
+
+// 🆕 Approve hold request — admin/librarian only
+router.patch('/:id/approve', restrictTo('super_admin', 'librarian'), approveReservation);
+
 router.delete('/:id', cancelReservation);
 
 module.exports = router;
