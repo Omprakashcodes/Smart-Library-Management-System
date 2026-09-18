@@ -43,28 +43,35 @@ export default function MyLoans() {
         <div className="grid grid-cols-1 gap-4">
           {loans.map((loan) => {
             const dueDate = new Date(loan.dueDate);
-            const isOverdue = new Date() > dueDate && loan.status !== 'returned';
+            const isOverdue = new Date() > dueDate && loan.status !== 'returned' && loan.status !== 'lost';
+            const isLost = loan.status === 'lost';
 
             return (
               <div
                 key={loan._id}
-                className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-4"
+                className={`bg-white dark:bg-slate-900 border rounded-2xl p-5 shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-4 ${
+                  isLost
+                    ? 'border-purple-500/40'
+                    : 'border-slate-200 dark:border-slate-800'
+                }`}
               >
                 <div className="flex items-center gap-4">
                   <img src={loan.book?.coverImageUrl || 'https://images.unsplash.com/photo-1544716278-ca5e3f4abd8c?auto=format&fit=crop&q=80&w=200'} alt="Book Cover" className="w-16 h-20 object-cover rounded-xl shadow" />
                   <div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
                       <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-400">
                         Tx: {loan._id?.slice(-6)}
                       </span>
                       <span
                         className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase ${
-                          isOverdue
-                            ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
-                            : 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                          isLost
+                            ? 'bg-purple-500/20 text-purple-400 border border-purple-500/30'
+                            : isOverdue
+                              ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
+                              : 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
                         }`}
                       >
-                        {loan.status}
+                        {isLost ? '📕 LOST' : loan.status}
                       </span>
                     </div>
 
@@ -75,13 +82,24 @@ export default function MyLoans() {
                       <span>Issued: {new Date(loan.issueDate).toLocaleDateString()}</span>
                       <span className="font-semibold text-slate-200">Due: {dueDate.toLocaleDateString()}</span>
                     </div>
+
+                    {/* 🆕 Lost book ka note */}
+                    {isLost && loan.notes && (
+                      <p className="text-[10px] text-purple-400/80 mt-1 italic">{loan.notes}</p>
+                    )}
                   </div>
                 </div>
 
                 <div className="flex items-center gap-3 w-full md:w-auto justify-end border-t md:border-t-0 border-slate-100 dark:border-slate-800 pt-3 md:pt-0">
-                  <button className="px-4 py-2 bg-indigo-600/10 text-indigo-400 hover:bg-indigo-600/20 border border-indigo-500/20 rounded-xl text-xs font-semibold flex items-center gap-2 transition-all">
-                    <RefreshCw className="w-3.5 h-3.5" /> Request Renewal
-                  </button>
+                  {isLost ? (
+                    <span className="text-xs text-purple-400 font-semibold">
+                      Penalty pending — check My Fines
+                    </span>
+                  ) : (
+                    <button className="px-4 py-2 bg-indigo-600/10 text-indigo-400 hover:bg-indigo-600/20 border border-indigo-500/20 rounded-xl text-xs font-semibold flex items-center gap-2 transition-all">
+                      <RefreshCw className="w-3.5 h-3.5" /> Request Renewal
+                    </button>
+                  )}
                 </div>
               </div>
             );

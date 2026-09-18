@@ -16,9 +16,9 @@ export class AdminApiService {
       if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
         return 'https://slms-backend-ncmv.onrender.com/api/v1';
       }
-      return (window as any).NG_APP_API_URL || (window as any).VITE_API_URL || 'https://slms-backend-up5s.onrender.com/api/v1';
+      return (window as any).NG_APP_API_URL || (window as any).VITE_API_URL || 'https://slms-backend-ncmv.onrender.com/api/v1';
     }
-    return 'https://slms-backend-up5s.onrender.com/api/v1';
+    return 'https://slms-backend-ncmv.onrender.com/api/v1';
   }
 
   private baseUrl = this.getBaseUrl();
@@ -86,6 +86,15 @@ export class AdminApiService {
 
   returnBook(transactionId: string): Observable<any> {
     return this.http.post(`${this.baseUrl}/transactions/return`, { transactionId }, { headers: this.getAuthHeaders() }).pipe(this.handleAuthError());
+  }
+
+  // 🆕 MARK BOOK AS LOST — penalty ke saath
+  markBookLost(transactionId: string, penaltyAmount: number): Observable<any> {
+    return this.http.post(
+      `${this.baseUrl}/transactions/mark-lost`,
+      { transactionId, penaltyAmount },
+      { headers: this.getAuthHeaders() }
+    ).pipe(this.handleAuthError());
   }
 
   getTransactions(): Observable<any> {

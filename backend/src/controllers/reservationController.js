@@ -3,6 +3,7 @@ const Book = require('../models/Book');
 const BorrowTransaction = require('../models/BorrowTransaction');
 const ApiResponse = require('../utils/apiResponse');
 const AuditLog = require('../models/AuditLog');
+const mongoose = require('mongoose');
 
 const createReservation = async (req, res, next) => {
   try {
@@ -127,4 +128,74 @@ const cancelReservation = async (req, res, next) => {
   }
 };
 
-module.exports = { createReservation, getMyReservations, getAllReservations, cancelReservation };
+// ============================================================
+// 🆕 BOOK QUEUE STATUS — Kisi bhi book ki live availability info
+// Nearest return date + hold queue list (privacy-masked names)
+// ============================================================
+
+// Helper: privacy ke liye naam mask karo — "Anuj Srivastav" → "Anuj S."
+const maskName = (fullName) => {
+  if (!fullName) return 'Member';
+  const parts = fullName.trim().split(' ');
+  if (parts.length === 1) return parts[0];
+  return `${parts[0]} ${parts[parts.length - 1].charAt(0)}.`;
+};
+
+const getBookQueueStatus = async (req, res, next) => {
+  try {
+    const { bookId } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(bookId)) {
+      return ApiResponse.error(res, 'Invalid book ID.', 400);
+    }
+
+    // 1️⃣ Is book ki saari issued copies — sabse jaldi return hone wali upar
+    const activeLoans = await BorrowTransaction.find({
+      book: bookId,
+      status: 'issued'
+    })
+      .select('dueDate')
+      .sort({ dueDate: 1 });
+
+    const nearestReturnDate = activeLoans.length > 0 ? activeLoans[0].dueDate : null;
+
+    // 2️⃣ Hold queue — position ke order mein
+    const queue = await Reservation.find({
+      book: bookId,
+      status: 'pending'
+    })
+      .populate('user', 'fullName memberId')
+      .sort({ queuePosition: 1 });
+
+    const queueList = queue.map((r) => {
+      const isYou = r.user && r.user._id.toString() === req.user.id;
+      return {
+        position: r.queuePosition,
+        memberName: isYou ? 'You' : maskName(r.user?.fullName),
+        isYou,
+        reservedOn: r.createdAt
+      };
+    });
+
+    return ApiResponse.success(
+      res,
+      {
+        issuedCopies: activeLoans.length,
+        nearestReturnDate,
+        queueCount: queue.length,
+        queue: queueList
+      },
+      'Book queue status fetched'
+    );
+  } catch (error) {
+    next(error);
+  }
+};
+
+module.exports = {
+  createReservation,
+  getMyReservations,
+  getAllReservations,
+  cancelReservation,
+  getBookQueueStatus
+};

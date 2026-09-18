@@ -1,16 +1,16 @@
 import React, { useEffect, useState } from 'react';
 import api from '../services/api';
 import { loadRazorpay } from '../services/razorpay';
-// import { loadRazorpay } from '../utils/razorpay';
 import {
   CheckCircle2,
   CreditCard,
   ShieldCheck,
-
   X,
   Loader2,
   AlertCircle,
-  LockKeyhole
+  LockKeyhole,
+  BookX,
+  Clock
 } from 'lucide-react';
 
 export default function MyFines() {
@@ -66,7 +66,6 @@ export default function MyFines() {
     setReceipt(null);
 
     try {
-      // Load official Razorpay Checkout SDK
       const sdkLoaded = await loadRazorpay();
 
       if (!sdkLoaded) {
@@ -75,9 +74,6 @@ export default function MyFines() {
         );
       }
 
-      // IMPORTANT:
-      // Fine amount frontend se nahi bhej rahe.
-      // Backend fine ID se actual amount database se uthata hai.
       const orderRes = await api.post('/payments/create-order', {
         fineId: selectedFine._id
       });
@@ -110,7 +106,9 @@ export default function MyFines() {
         amount: order.amount,
         currency: order.currency || 'INR',
         name: 'Smart Library Management System',
-        description: `Library Fine #${selectedFine._id.slice(-6).toUpperCase()}`,
+        description: selectedFine.type === 'lost_book'
+          ? `Lost Book Penalty #${selectedFine._id.slice(-6).toUpperCase()}`
+          : `Library Fine #${selectedFine._id.slice(-6).toUpperCase()}`,
         order_id: order.orderId,
 
         prefill: {
@@ -138,7 +136,6 @@ export default function MyFines() {
 
         handler: async (response) => {
           try {
-            // Razorpay payment result backend ko verify karna MANDATORY hai.
             const verifyRes = await api.post('/payments/verify', {
               razorpay_order_id: response.razorpay_order_id,
               razorpay_payment_id: response.razorpay_payment_id,
@@ -162,8 +159,6 @@ export default function MyFines() {
             setPaymentSuccess(true);
             setPaymentError('');
 
-            // Backend is now source of truth.
-            // Fine list ko server/database se fresh load karo.
             await fetchFines();
           } catch (err) {
             console.error('Payment verification failed:', err);
@@ -194,7 +189,6 @@ export default function MyFines() {
 
       razorpay.open();
 
-      // Payment modal is open; spinner ki zarurat nahi while user enters details.
       setPaymentLoading(false);
     } catch (err) {
       console.error('Payment initialization failed:', err);
@@ -269,7 +263,7 @@ export default function MyFines() {
                 className="p-6 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4"
               >
                 <div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-400">
                       Fine #{fine._id?.slice(-6).toUpperCase()}
                     </span>
@@ -285,6 +279,17 @@ export default function MyFines() {
                     >
                       {fine.status}
                     </span>
+
+                    {/* 🆕 Fine TYPE badge — LOST BOOK ya OVERDUE */}
+                    {fine.type === 'lost_book' ? (
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-400 border border-purple-500/30 flex items-center gap-1">
+                        <BookX className="w-3 h-3" /> LOST BOOK
+                      </span>
+                    ) : (
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-500/20 text-slate-400 border border-slate-500/30 flex items-center gap-1">
+                        <Clock className="w-3 h-3" /> OVERDUE
+                      </span>
+                    )}
                   </div>
 
                   <h3 className="font-bold text-sm text-slate-900 dark:text-white mt-1">
@@ -292,8 +297,10 @@ export default function MyFines() {
                   </h3>
 
                   <p className="text-xs text-slate-400 mt-0.5">
-                    Overdue by {fine.overdueDays} days • Assessed Date:{' '}
-                    {new Date(fine.createdAt).toLocaleDateString()}
+                    {fine.type === 'lost_book'
+                      ? 'Book marked lost — replacement penalty applied'
+                      : `Overdue by ${fine.overdueDays} days`}{' '}
+                    • Assessed Date: {new Date(fine.createdAt).toLocaleDateString()}
                   </p>
 
                   {fine.status === 'paid' && fine.transactionReference && (
@@ -400,23 +407,31 @@ export default function MyFines() {
             ) : (
               <>
                 <div>
-                  <div className="w-11 h-11 rounded-xl bg-indigo-500/15 text-indigo-500 flex items-center justify-center mb-4">
-                    <CreditCard className="w-5 h-5" />
+                  <div className={`w-11 h-11 rounded-xl flex items-center justify-center mb-4 ${
+                    selectedFine.type === 'lost_book'
+                      ? 'bg-purple-500/15 text-purple-400'
+                      : 'bg-indigo-500/15 text-indigo-500'
+                  }`}>
+                    {selectedFine.type === 'lost_book'
+                      ? <BookX className="w-5 h-5" />
+                      : <CreditCard className="w-5 h-5" />}
                   </div>
 
                   <h3 className="text-lg font-bold text-slate-900 dark:text-white">
-                    Pay Library Fine
+                    {selectedFine.type === 'lost_book' ? 'Pay Lost Book Penalty' : 'Pay Library Fine'}
                   </h3>
 
                   <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
                     Fine #{selectedFine._id?.slice(-6).toUpperCase()} •{' '}
-                    {selectedFine.overdueDays} overdue days
+                    {selectedFine.type === 'lost_book'
+                      ? 'Book replacement penalty'
+                      : `${selectedFine.overdueDays} overdue days`}
                   </p>
                 </div>
 
                 <div className="mt-5 p-4 rounded-2xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 space-y-3">
                   <div className="flex justify-between text-xs text-slate-500 dark:text-slate-400">
-                    <span>Fine charge</span>
+                    <span>{selectedFine.type === 'lost_book' ? 'Penalty charge' : 'Fine charge'}</span>
                     <span>₹{Number(selectedFine.amount).toFixed(2)}</span>
                   </div>
 

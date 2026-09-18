@@ -22,6 +22,13 @@ const fineSchema = new mongoose.Schema(
       type: Number,
       default: 0
     },
+    // 🆕 Fine ka type — overdue ya lost book penalty
+    type: {
+      type: String,
+      enum: ['overdue', 'lost_book'],
+      default: 'overdue',
+      index: true
+    },
     status: {
       type: String,
       enum: ['unpaid', 'paid', 'waived'],

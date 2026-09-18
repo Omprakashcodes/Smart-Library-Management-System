@@ -11,20 +11,20 @@ import { AdminApiService } from '../../services/admin-api.service';
     <div class="space-y-6 pb-12 relative">
       <div>
         <h1 class="text-2xl font-bold text-white">Live Circulation & Desk Operations</h1>
-        <p class="text-xs text-slate-400 mt-1">Process checkouts and returns using Member ID, Email, ISBN, or Transaction ID.</p>
+        <p class="text-xs text-slate-400 mt-1">Process checkouts, returns, and lost book penalties using Member ID, Email, ISBN, or Transaction ID.</p>
       </div>
 
-      <!-- Top Middle Fixed Floating Toast Popups -->
-      <div *ngIf="issueMsg || returnMsg" class="fixed top-6 left-1/2 -translate-x-1/2 z-[100] bg-slate-900 border border-emerald-500/50 text-white px-6 py-3.5 rounded-2xl shadow-2xl flex items-center gap-3 max-w-md w-11/12">
+      <!-- Toast Popups -->
+      <div *ngIf="issueMsg || returnMsg || lostMsg" class="fixed top-6 left-1/2 -translate-x-1/2 z-[100] bg-slate-900 border border-emerald-500/50 text-white px-6 py-3.5 rounded-2xl shadow-2xl flex items-center gap-3 max-w-md w-11/12">
         <span class="w-2.5 h-2.5 rounded-full bg-emerald-400 shrink-0"></span>
-        <span class="text-xs font-semibold text-slate-100 flex-1 text-center sm:text-left">{{ issueMsg || returnMsg }}</span>
-        <button (click)="issueMsg = ''; returnMsg = ''" class="text-slate-400 hover:text-white text-xs ml-2">✕</button>
+        <span class="text-xs font-semibold text-slate-100 flex-1 text-center sm:text-left">{{ issueMsg || returnMsg || lostMsg }}</span>
+        <button (click)="issueMsg = ''; returnMsg = ''; lostMsg = ''" class="text-slate-400 hover:text-white text-xs ml-2">✕</button>
       </div>
 
-      <div *ngIf="issueErr || returnErr" class="fixed top-6 left-1/2 -translate-x-1/2 z-[100] bg-slate-900 border border-rose-500/50 text-white px-6 py-3.5 rounded-2xl shadow-2xl flex items-center gap-3 max-w-md w-11/12">
+      <div *ngIf="issueErr || returnErr || lostErr" class="fixed top-6 left-1/2 -translate-x-1/2 z-[100] bg-slate-900 border border-rose-500/50 text-white px-6 py-3.5 rounded-2xl shadow-2xl flex items-center gap-3 max-w-md w-11/12">
         <span class="w-2.5 h-2.5 rounded-full bg-rose-400 shrink-0"></span>
-        <span class="text-xs font-semibold text-rose-400 flex-1 text-center sm:text-left">{{ issueErr || returnErr }}</span>
-        <button (click)="issueErr = ''; returnErr = ''" class="text-slate-400 hover:text-white text-xs ml-2">✕</button>
+        <span class="text-xs font-semibold text-rose-400 flex-1 text-center sm:text-left">{{ issueErr || returnErr || lostErr }}</span>
+        <button (click)="issueErr = ''; returnErr = ''; lostErr = ''" class="text-slate-400 hover:text-white text-xs ml-2">✕</button>
       </div>
 
       <!-- Quick Desk Action Box -->
@@ -88,7 +88,7 @@ import { AdminApiService } from '../../services/admin-api.service';
                 <th class="p-4">Issue Date</th>
                 <th class="p-4">Due Date</th>
                 <th class="p-4">Status</th>
-                <th class="p-4 text-right">Quick Action</th>
+                <th class="p-4 text-right">Quick Actions</th>
               </tr>
             </thead>
             <tbody class="divide-y divide-slate-800">
@@ -107,19 +107,64 @@ import { AdminApiService } from '../../services/admin-api.service';
                 <td class="p-4">
                   <span
                     class="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase"
-                    [ngClass]="t.status === 'issued' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-rose-500/20 text-rose-400'"
+                    [ngClass]="{
+                      'bg-emerald-500/20 text-emerald-400': t.status === 'issued',
+                      'bg-rose-500/20 text-rose-400': t.status === 'overdue',
+                      'bg-slate-500/20 text-slate-400': t.status === 'returned',
+                      'bg-purple-500/20 text-purple-400': t.status === 'lost'
+                    }"
                   >
                     {{ t.status }}
                   </span>
                 </td>
-                <td class="p-4 text-right">
-                  <button *ngIf="t.status === 'issued'" (click)="quickReturn(t._id)" class="text-indigo-400 font-semibold hover:text-indigo-300">
+                <td class="p-4 text-right space-x-3">
+                  <button *ngIf="t.status === 'issued' || t.status === 'overdue'" (click)="quickReturn(t._id)" class="text-indigo-400 font-semibold hover:text-indigo-300">
                     Return Book
+                  </button>
+                  <!-- 🆕 MARK LOST button -->
+                  <button *ngIf="t.status === 'issued' || t.status === 'overdue'" (click)="openLostModal(t)" class="text-purple-400 font-semibold hover:text-purple-300">
+                    Mark Lost
                   </button>
                 </td>
               </tr>
             </tbody>
           </table>
+        </div>
+      </div>
+
+      <!-- 🆕 MARK LOST CONFIRMATION MODAL -->
+      <div *ngIf="lostModalOpen" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
+        <div class="bg-slate-900 border border-slate-800 rounded-3xl max-w-md w-full p-6 space-y-4 relative shadow-2xl">
+          <button (click)="closeLostModal()" class="absolute top-4 right-4 w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:bg-slate-800">✕</button>
+
+          <div class="w-11 h-11 rounded-xl bg-purple-500/15 text-purple-400 flex items-center justify-center">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+          </div>
+
+          <div>
+            <h3 class="text-lg font-bold text-white">Mark Book as Lost?</h3>
+            <p class="text-xs text-slate-400 mt-1">Ye action permanent hai — book inventory se remove ho jayegi aur member par penalty lagegi.</p>
+          </div>
+
+          <div class="p-4 rounded-2xl bg-slate-800 border border-slate-700 space-y-2 text-xs">
+            <div class="flex justify-between"><span class="text-slate-400">Book</span><span class="text-white font-semibold">{{ lostTransaction?.book?.title }}</span></div>
+            <div class="flex justify-between"><span class="text-slate-400">Member</span><span class="text-white font-semibold">{{ lostTransaction?.user?.fullName }}</span></div>
+          </div>
+
+          <div>
+            <label class="text-slate-400 block mb-1 text-xs">Penalty Amount (₹) *</label>
+            <input type="number" [(ngModel)]="lostPenalty" min="1" class="w-full p-2.5 bg-slate-800 border border-slate-700 rounded-xl text-white font-mono text-sm" />
+            <p class="text-[10px] text-slate-500 mt-1">Default: ₹500 — book ki replacement cost ke hisaab se adjust karo</p>
+          </div>
+
+          <div class="flex gap-3 pt-2">
+            <button (click)="closeLostModal()" [disabled]="lostLoading" class="flex-1 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold">
+              Cancel
+            </button>
+            <button (click)="confirmMarkLost()" [disabled]="lostLoading" class="flex-1 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-500 disabled:bg-purple-800 text-white text-xs font-semibold shadow-lg shadow-purple-600/30">
+              {{ lostLoading ? 'Processing...' : 'Confirm Lost + Penalty' }}
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -134,6 +179,14 @@ export class IssueReturnComponent implements OnInit {
   issueErr = '';
   returnMsg = '';
   returnErr = '';
+
+  // 🆕 Lost book state
+  lostModalOpen = false;
+  lostTransaction: any = null;
+  lostPenalty = 500;
+  lostLoading = false;
+  lostMsg = '';
+  lostErr = '';
 
   transactions: any[] = [];
   loading = true;
@@ -220,6 +273,56 @@ export class IssueReturnComponent implements OnInit {
       error: (err) => {
         this.returnErr = err.error?.message || 'Failed to process return.';
         setTimeout(() => (this.returnErr = ''), 5000);
+        if (err.status === 401) {
+          localStorage.removeItem('slms_token');
+          window.location.href = '/login';
+        }
+      }
+    });
+  }
+
+  // 🆕 ============ LOST BOOK METHODS ============
+
+  openLostModal(transaction: any) {
+    this.lostTransaction = transaction;
+    this.lostPenalty = 500; // default penalty reset
+    this.lostModalOpen = true;
+    this.lostErr = '';
+  }
+
+  closeLostModal() {
+    if (this.lostLoading) return;
+    this.lostModalOpen = false;
+    this.lostTransaction = null;
+  }
+
+  confirmMarkLost() {
+    if (!this.lostTransaction?._id || this.lostLoading) return;
+
+    if (!this.lostPenalty || this.lostPenalty <= 0) {
+      this.lostErr = 'Please enter a valid penalty amount.';
+      setTimeout(() => (this.lostErr = ''), 5000);
+      return;
+    }
+
+    this.lostLoading = true;
+    this.lostMsg = '';
+    this.lostErr = '';
+
+    this.api.markBookLost(this.lostTransaction._id, this.lostPenalty).subscribe({
+      next: (res: any) => {
+        this.lostMsg = res.message || `Book marked as lost. Penalty of ₹${this.lostPenalty.toFixed(2)} applied.`;
+        this.lostLoading = false;
+        this.lostModalOpen = false;
+        this.lostTransaction = null;
+        this.loadTransactions();
+        setTimeout(() => (this.lostMsg = ''), 6000);
+      },
+      error: (err) => {
+        this.lostErr = err.error?.message || 'Failed to mark book as lost.';
+        this.lostLoading = false;
+        this.lostModalOpen = false;
+        setTimeout(() => (this.lostErr = ''), 5000);
         if (err.status === 401) {
           localStorage.removeItem('slms_token');
           window.location.href = '/login';

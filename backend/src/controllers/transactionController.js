@@ -137,6 +137,10 @@ const returnBook = async (req, res, next) => {
       return ApiResponse.error(res, 'This book has already been returned.', 400);
     }
 
+    if (transaction.status === 'lost') {
+      return ApiResponse.error(res, 'This book is marked as lost and cannot be returned.', 400);
+    }
+
     const returnDate = new Date();
     transaction.returnDate = returnDate;
     transaction.status = 'returned';
@@ -174,6 +178,7 @@ const returnBook = async (req, res, next) => {
         user: transaction.user._id,
         amount,
         overdueDays,
+        type: 'overdue',
         status: 'unpaid'
       });
 
@@ -193,6 +198,99 @@ const returnBook = async (req, res, next) => {
     });
 
     return ApiResponse.success(res, { transaction, fine: fineRecord }, 'Book returned successfully!');
+  } catch (error) {
+    next(error);
+  }
+};
+
+// ============================================================
+// 🆕 MARK BOOK AS LOST — Admin/Librarian ONLY
+// Penalty + inventory update + notification + audit
+// ============================================================
+const markBookLost = async (req, res, next) => {
+  try {
+    // Role Guard — sirf staff mark kar sakta hai
+    const allowedRoles = ['super_admin', 'admin', 'librarian'];
+    if (!req.user || !allowedRoles.includes(req.user.role)) {
+      return ApiResponse.error(res, 'Only admin/librarian can mark books as lost.', 403);
+    }
+
+    const { transactionId, penaltyAmount } = req.body;
+
+    if (!transactionId) {
+      return ApiResponse.error(res, 'Transaction ID is required.', 400);
+    }
+
+    if (!mongoose.Types.ObjectId.isValid(transactionId)) {
+      return ApiResponse.error(res, 'Invalid Transaction ID.', 400);
+    }
+
+    const transaction = await BorrowTransaction.findById(transactionId).populate('book user');
+
+    if (!transaction) {
+      return ApiResponse.error(res, `Transaction record "${transactionId}" not found.`, 404);
+    }
+
+    if (transaction.status === 'lost') {
+      return ApiResponse.error(res, 'This book is already marked as lost.', 400);
+    }
+
+    if (transaction.status === 'returned') {
+      return ApiResponse.error(res, 'This book has already been returned.', 400);
+    }
+
+    // 1️⃣ Transaction ko LOST mark karo
+    transaction.status = 'lost';
+    transaction.returnDate = new Date();
+    transaction.notes = `Marked LOST by staff on ${new Date().toDateString()}`;
+    await transaction.save();
+
+    // 2️⃣ Book inventory se permanently remove karo
+    const book = await Book.findById(transaction.book._id);
+    if (book) {
+      book.totalCopies = Math.max(0, book.totalCopies - 1);
+      book.availableCopies = Math.min(book.availableCopies, book.totalCopies);
+      await book.save();
+    }
+
+    // 3️⃣ Penalty fine create karo
+    const defaultPenalty = parseFloat(process.env.LOST_BOOK_PENALTY) || 500;
+    const amount = Number(penaltyAmount) > 0 ? Number(penaltyAmount) : defaultPenalty;
+
+    const fineRecord = await Fine.create({
+      transaction: transaction._id,
+      user: transaction.user._id,
+      amount,
+      type: 'lost_book',
+      overdueDays: 0,
+      status: 'unpaid'
+    });
+
+    // 4️⃣ Student ko notification
+    await Notification.create({
+      recipient: transaction.user._id,
+      title: 'Lost Book Penalty Incurred',
+      message: `Book "${transaction.book.title}" has been marked as LOST. Penalty: ₹${amount.toFixed(2)}. Please clear it to continue borrowing.`,
+      type: 'fine_added'
+    });
+
+    // 5️⃣ Audit trail
+    await AuditLog.create({
+      performedBy: req.user.id,
+      action: 'MARK_BOOK_LOST',
+      module: 'TRANSACTIONS',
+      details: {
+        transactionId: transaction._id,
+        bookTitle: transaction.book.title,
+        penalty: amount
+      }
+    });
+
+    return ApiResponse.success(
+      res,
+      { transaction, fine: fineRecord },
+      `Book marked as lost. Penalty of ₹${amount.toFixed(2)} applied to ${transaction.user.fullName}.`
+    );
   } catch (error) {
     next(error);
   }
@@ -234,4 +332,4 @@ const getAllTransactions = async (req, res, next) => {
   }
 };
 
-module.exports = { issueBook, returnBook, getMyTransactions, getAllTransactions };
+module.exports = { issueBook, returnBook, markBookLost, getMyTransactions, getAllTransactions };
