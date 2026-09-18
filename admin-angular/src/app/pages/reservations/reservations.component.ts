@@ -12,7 +12,7 @@ import { AdminApiService } from '../../services/admin-api.service';
       <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
           <h1 class="text-2xl font-bold text-white tracking-tight">Student Reservation Holds & Priority Queue</h1>
-          <p class="text-xs text-slate-400 mt-1">Approve, monitor, and manage live hold queues and student reservations.</p>
+          <p class="text-xs text-slate-400 mt-1">Approve hold requests (stock reduces) or Handover books directly to students.</p>
         </div>
 
         <button (click)="loadReservations()" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white text-xs font-semibold rounded-xl border border-slate-700 flex items-center gap-1.5 transition-colors">
@@ -22,7 +22,7 @@ import { AdminApiService } from '../../services/admin-api.service';
       </div>
 
       <!-- Quick Metrics Summary -->
-      <div class="grid grid-cols-1 sm:grid-cols-4 gap-4">
+      <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div class="p-4 bg-slate-900/80 border border-slate-800 rounded-2xl flex items-center gap-4">
           <div class="w-10 h-10 rounded-xl bg-cyan-500/10 text-cyan-400 flex items-center justify-center font-bold text-base border border-cyan-500/20">
             {{ reservations.length }}
@@ -38,18 +38,8 @@ import { AdminApiService } from '../../services/admin-api.service';
             {{ getCountByStatus('pending') }}
           </div>
           <div>
-            <div class="text-xs text-slate-400 font-medium">Awaiting Approval</div>
-            <div class="text-base font-bold text-amber-400">Pending</div>
-          </div>
-        </div>
-
-        <div class="p-4 bg-slate-900/80 border border-slate-800 rounded-2xl flex items-center gap-4">
-          <div class="w-10 h-10 rounded-xl bg-indigo-500/10 text-indigo-400 flex items-center justify-center font-bold text-base border border-indigo-500/20">
-            {{ getCountByStatus('approved') }}
-          </div>
-          <div>
-            <div class="text-xs text-slate-400 font-medium">Ready for Pickup</div>
-            <div class="text-base font-bold text-indigo-400">Approved</div>
+            <div class="text-xs text-slate-400 font-medium">Active Waiting</div>
+            <div class="text-base font-bold text-amber-400">Pending Holds</div>
           </div>
         </div>
 
@@ -59,22 +49,18 @@ import { AdminApiService } from '../../services/admin-api.service';
           </div>
           <div>
             <div class="text-xs text-slate-400 font-medium">Issued Loans</div>
-            <div class="text-base font-bold text-emerald-400">Fulfilled</div>
+            <div class="text-base font-bold text-emerald-400">Fulfilled Holds</div>
           </div>
         </div>
       </div>
 
       <!-- Alert Notification -->
-      <div *ngIf="message" class="p-4 bg-cyan-500/10 border border-cyan-500/30 rounded-2xl text-cyan-400 text-xs font-semibold animate-in fade-in">
+      <div *ngIf="message" class="p-4 bg-emerald-500/10 border border-emerald-500/30 rounded-2xl text-emerald-400 text-xs font-semibold animate-in fade-in">
         {{ message }}
       </div>
 
-      <div *ngIf="errorMessage" class="p-4 bg-rose-500/10 border border-rose-500/30 rounded-2xl text-rose-400 text-xs font-semibold animate-in fade-in">
-        {{ errorMessage }}
-      </div>
-
       <!-- Filter Tabs -->
-      <div class="flex items-center gap-2 border-b border-slate-800 pb-3 flex-wrap">
+      <div class="flex items-center gap-2 border-b border-slate-800 pb-3">
         <button
           *ngFor="let tab of tabs"
           (click)="activeTab = tab.id"
@@ -129,7 +115,7 @@ import { AdminApiService } from '../../services/admin-api.service';
                     class="px-2.5 py-1 rounded-full text-[10px] font-bold uppercase"
                     [ngClass]="{
                       'bg-amber-500/20 text-amber-400 border border-amber-500/30': r.status === 'pending',
-                      'bg-indigo-500/20 text-indigo-400 border border-indigo-500/30': r.status === 'approved',
+                      'bg-cyan-500/20 text-cyan-400 border border-cyan-500/30': r.status === 'approved',
                       'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30': r.status === 'fulfilled',
                       'bg-rose-500/20 text-rose-400 border border-rose-500/30': r.status === 'cancelled'
                     }"
@@ -137,25 +123,35 @@ import { AdminApiService } from '../../services/admin-api.service';
                     {{ r.status }}
                   </span>
                 </td>
-                <td class="p-4 text-right space-x-1">
-                  <!-- 🆕 APPROVE button — sirf pending par -->
+                <td class="p-4 text-right space-x-2">
+                  <!-- Step 1: Approve Hold (Reduces Stock by 1) -->
                   <button
                     *ngIf="r.status === 'pending'"
-                    (click)="approve(r._id)"
-                    [disabled]="processingId === r._id"
-                    class="text-emerald-400 hover:text-emerald-300 font-semibold px-2 py-1 rounded-lg hover:bg-emerald-500/10 transition-colors disabled:opacity-50"
+                    (click)="approveHold(r._id)"
+                    class="bg-cyan-600 hover:bg-cyan-500 text-white font-semibold text-[11px] px-3 py-1.5 rounded-lg shadow-md transition-all"
                   >
-                    {{ processingId === r._id ? 'Approving...' : '✅ Approve' }}
+                    Approve (Deduct Stock)
                   </button>
+
+                  <!-- Step 2: Handover Book (Converts to Active Loan 1/3) -->
+                  <button
+                    *ngIf="r.status === 'pending' || r.status === 'approved'"
+                    (click)="fulfill(r._id)"
+                    class="bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-[11px] px-3 py-1.5 rounded-lg shadow-md transition-all"
+                  >
+                    Handover Book (Checkout)
+                  </button>
+
                   <button
                     *ngIf="r.status === 'pending' || r.status === 'approved'"
                     (click)="cancel(r._id)"
-                    [disabled]="processingId === r._id"
-                    class="text-rose-400 hover:text-rose-300 font-semibold px-2 py-1 rounded-lg hover:bg-rose-500/10 transition-colors disabled:opacity-50"
+                    class="text-rose-400 hover:text-rose-300 font-semibold px-2 py-1.5 rounded-lg hover:bg-rose-500/10 transition-colors"
                   >
                     Cancel
                   </button>
-                  <span *ngIf="r.status === 'fulfilled' || r.status === 'cancelled'" class="text-slate-500 text-[11px]">Completed</span>
+
+                  <span *ngIf="r.status === 'fulfilled'" class="text-emerald-400 font-semibold text-[11px]">Active Loan Issued</span>
+                  <span *ngIf="r.status === 'cancelled'" class="text-slate-500 text-[11px]">Cancelled</span>
                 </td>
               </tr>
             </tbody>
@@ -169,16 +165,14 @@ export class ReservationsComponent implements OnInit {
   reservations: any[] = [];
   loading = true;
   message = '';
-  errorMessage = '';
   activeTab = 'all';
-  processingId: string | null = null; // 🆕 double-click protection
 
   tabs = [
     { id: 'all', label: 'All Hold Queues' },
-    { id: 'pending', label: 'Pending Approval' },
-    { id: 'approved', label: 'Approved' },
-    { id: 'fulfilled', label: 'Fulfilled Loans' },
-    { id: 'cancelled', label: 'Cancelled Holds' }
+    { id: 'pending', label: 'Pending Holds' },
+    { id: 'approved', label: 'Ready for Pickup' },
+    { id: 'fulfilled', label: 'Active Loans' },
+    { id: 'cancelled', label: 'Cancelled' }
   ];
 
   constructor(private api: AdminApiService) {}
@@ -212,42 +206,41 @@ export class ReservationsComponent implements OnInit {
     });
   }
 
-  // 🆕 Approve hold request
-  approve(id: string) {
-    if (this.processingId) return;
-    this.processingId = id;
-    this.message = '';
-    this.errorMessage = '';
-
-    this.api.approveReservation(id).subscribe({
+  approveHold(id: string) {
+    this.api.approveHold(id).subscribe({
       next: (res: any) => {
-        this.message = res.message || 'Hold approved! Student has been notified.';
-        this.processingId = null;
+        this.message = res.message || 'Hold approved! Book stock reduced by 1.';
         this.loadReservations();
         setTimeout(() => (this.message = ''), 5000);
       },
-      error: (err) => {
-        this.errorMessage = err.error?.message || 'Failed to approve reservation.';
-        this.processingId = null;
-        setTimeout(() => (this.errorMessage = ''), 5000);
+      error: (err: any) => {
+        alert(err.error?.message || 'Failed to approve hold.');
+      }
+    });
+  }
+
+  fulfill(id: string) {
+    if (!confirm('Handover book to student now? Book will move to Student Active Borrowed Books (1/3).')) return;
+
+    this.api.fulfillReservation(id).subscribe({
+      next: (res: any) => {
+        this.message = res.message || 'Book checked out successfully to student!';
+        this.loadReservations();
+        setTimeout(() => (this.message = ''), 5000);
+      },
+      error: (err: any) => {
+        alert(err.error?.message || 'Failed to checkout book.');
       }
     });
   }
 
   cancel(id: string) {
-    if (this.processingId) return;
     if (!confirm('Cancel this student hold reservation?')) return;
-    this.processingId = id;
-
     this.api.cancelReservation(id).subscribe({
       next: () => {
         this.message = 'Reservation cancelled.';
-        this.processingId = null;
         this.loadReservations();
         setTimeout(() => (this.message = ''), 4000);
-      },
-      error: () => {
-        this.processingId = null;
       }
     });
   }

@@ -9,14 +9,15 @@ import { Router } from '@angular/router';
 })
 export class AdminApiService {
   private getBaseUrl(): string {
-    if ((window as any).NG_APP_API_URL) return (window as any).NG_APP_API_URL;
-    if ((window as any).VITE_API_URL) return (window as any).VITE_API_URL;
-    if ((window as any).API_URL) return (window as any).API_URL;
     if (typeof window !== 'undefined') {
-      if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+      const w = window as any;
+      if (w.NG_APP_API_URL) return w.NG_APP_API_URL;
+      if (w.VITE_API_URL) return w.VITE_API_URL;
+      if (w.API_URL) return w.API_URL;
+      if (w.location.hostname === 'localhost' || w.location.hostname === '127.0.0.1') {
         return 'https://slms-backend-ncmv.onrender.com/api/v1';
       }
-      return (window as any).NG_APP_API_URL || (window as any).VITE_API_URL || 'https://slms-backend-ncmv.onrender.com/api/v1';
+      return w.NG_APP_API_URL || w.VITE_API_URL || 'https://slms-backend-ncmv.onrender.com/api/v1';
     }
     return 'https://slms-backend-ncmv.onrender.com/api/v1';
   }
@@ -88,13 +89,8 @@ export class AdminApiService {
     return this.http.post(`${this.baseUrl}/transactions/return`, { transactionId }, { headers: this.getAuthHeaders() }).pipe(this.handleAuthError());
   }
 
-  // 🆕 MARK BOOK AS LOST — penalty ke saath
-  markBookLost(transactionId: string, penaltyAmount: number): Observable<any> {
-    return this.http.post(
-      `${this.baseUrl}/transactions/mark-lost`,
-      { transactionId, penaltyAmount },
-      { headers: this.getAuthHeaders() }
-    ).pipe(this.handleAuthError());
+  reportLostBook(transactionId: string, penaltyAmount: number = 500): Observable<any> {
+    return this.http.post(`${this.baseUrl}/transactions/lost`, { transactionId, penaltyAmount }, { headers: this.getAuthHeaders() }).pipe(this.handleAuthError());
   }
 
   getTransactions(): Observable<any> {
@@ -113,13 +109,16 @@ export class AdminApiService {
     return this.http.get(`${this.baseUrl}/reservations`, { headers: this.getAuthHeaders() }).pipe(this.handleAuthError());
   }
 
-  cancelReservation(id: string): Observable<any> {
-    return this.http.delete(`${this.baseUrl}/reservations/${id}`, { headers: this.getAuthHeaders() }).pipe(this.handleAuthError());
+  approveHold(id: string): Observable<any> {
+    return this.http.post(`${this.baseUrl}/reservations/${id}/approve`, {}, { headers: this.getAuthHeaders() }).pipe(this.handleAuthError());
   }
 
-    // 🆕 Approve student hold request
-  approveReservation(id: string): Observable<any> {
-    return this.http.patch(`${this.baseUrl}/reservations/${id}/approve`, {}, { headers: this.getAuthHeaders() }).pipe(this.handleAuthError());
+  fulfillReservation(id: string): Observable<any> {
+    return this.http.post(`${this.baseUrl}/reservations/${id}/fulfill`, {}, { headers: this.getAuthHeaders() }).pipe(this.handleAuthError());
+  }
+
+  cancelReservation(id: string): Observable<any> {
+    return this.http.delete(`${this.baseUrl}/reservations/${id}`, { headers: this.getAuthHeaders() }).pipe(this.handleAuthError());
   }
 
   getNotifications(): Observable<any> {

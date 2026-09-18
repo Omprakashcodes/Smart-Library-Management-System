@@ -4,7 +4,8 @@ const {
   createReservation,
   getMyReservations,
   getAllReservations,
-  approveReservation,
+  approveHoldForPickup,
+  fulfillReservation,
   cancelReservation,
   getBookQueueStatus
 } = require('../controllers/reservationController');
@@ -15,15 +16,10 @@ router.use(protect);
 
 router.post('/', createReservation);
 router.get('/my-reservations', getMyReservations);
-
-// Book queue status — '/:id' wali routes se PEHLE rakhna zaroori
-router.get('/book/:bookId/queue', getBookQueueStatus);
-
 router.get('/', restrictTo('super_admin', 'librarian'), getAllReservations);
-
-// 🆕 Approve hold request — admin/librarian only
-router.patch('/:id/approve', restrictTo('super_admin', 'librarian'), approveReservation);
-
+router.post('/:id/approve', restrictTo('super_admin', 'librarian'), approveHoldForPickup); // 🆕 APPROVE FOR PICKUP (Stock -1)
+router.post('/:id/fulfill', restrictTo('super_admin', 'librarian'), fulfillReservation);    // 🆕 HANDOVER AT DESK (Active Loan 1/3)
 router.delete('/:id', cancelReservation);
+router.get('/book/:bookId/queue', getBookQueueStatus);
 
 module.exports = router;
