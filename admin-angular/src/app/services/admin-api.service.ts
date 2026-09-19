@@ -93,6 +93,10 @@ export class AdminApiService {
     return this.http.post(`${this.baseUrl}/transactions/lost`, { transactionId, penaltyAmount }, { headers: this.getAuthHeaders() }).pipe(this.handleAuthError());
   }
 
+  markBookLost(transactionId: string, penaltyAmount: number = 500): Observable<any> {
+    return this.reportLostBook(transactionId, penaltyAmount);
+  }
+
   getTransactions(): Observable<any> {
     return this.http.get(`${this.baseUrl}/transactions`, { headers: this.getAuthHeaders() }).pipe(this.handleAuthError());
   }

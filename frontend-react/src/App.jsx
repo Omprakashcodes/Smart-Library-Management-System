@@ -14,24 +14,33 @@ import Login from './pages/Login';
 import Register from './pages/Register';
 import ForgotPassword from './pages/ForgotPassword';
 import ResetPassword from './pages/ResetPassword';
+import Chatbot from './components/Chatbot';
 
 function ProtectedLayout() {
   const { user } = useAuth();
   const [globalSearch, setGlobalSearch] = useState('');
 
+  // Not logged in → login page
   if (!user) {
     return <Navigate to="/login" replace />;
   }
 
-  const userRole = user.role || '';
-  if (userRole === 'super_admin' || userRole === 'admin' || userRole === 'librarian' || userRole.includes('admin')) {
+  // 🔒 BLOCK ADMINS FROM STUDENT PORTAL
+  const userRole = (user.role || '').toLowerCase();
+  if (
+    userRole === 'super_admin' ||
+    userRole === 'admin' ||
+    userRole === 'librarian' ||
+    userRole.includes('admin')
+  ) {
+    // Clear session so they can't stay here
     localStorage.removeItem('slms_token');
     localStorage.removeItem('slms_user');
     return <Navigate to="/login" replace />;
   }
 
   return (
-    <div className="min-h-screen flex flex-col bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 transition-colors">
+    <div className="min-h-screen flex flex-col bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 transition-colors relative">
       <Navbar onSearchChange={setGlobalSearch} />
       <div className="flex flex-1 max-w-7xl w-full mx-auto px-4 lg:px-8">
         <Sidebar />
@@ -47,6 +56,9 @@ function ProtectedLayout() {
           </Routes>
         </main>
       </div>
+
+      {/* Chatbot only for students/faculty */}
+      <Chatbot />
     </div>
   );
 }
@@ -57,16 +69,16 @@ export default function App() {
       <AuthProvider>
         <BrowserRouter>
           <Routes>
-                  <Route path="/login" element={<Login />} />
-                  <Route path="/register" element={<Register />} />
-                  <Route path="/forgot-password" element={<ForgotPassword />} />
-                  <Route path="/reset-password" element={<ResetPassword />} />
-                  <Route path="/auth/login" element={<Login />} />
-                  <Route path="/auth/register" element={<Register />} />
-                  <Route path="/auth/forgot-password" element={<ForgotPassword />} />
-                  <Route path="/auth/reset-password" element={<ResetPassword />} />
-                  <Route path="/*" element={<ProtectedLayout />} />
-         </Routes>
+            <Route path="/login" element={<Login />} />
+            <Route path="/register" element={<Register />} />
+            <Route path="/forgot-password" element={<ForgotPassword />} />
+            <Route path="/reset-password" element={<ResetPassword />} />
+            <Route path="/auth/login" element={<Login />} />
+            <Route path="/auth/register" element={<Register />} />
+            <Route path="/auth/forgot-password" element={<ForgotPassword />} />
+            <Route path="/auth/reset-password" element={<ResetPassword />} />
+            <Route path="/*" element={<ProtectedLayout />} />
+          </Routes>
         </BrowserRouter>
       </AuthProvider>
     </ThemeProvider>

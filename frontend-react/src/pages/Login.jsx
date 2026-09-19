@@ -17,7 +17,6 @@ export default function Login() {
     setErrorMessage('');
 
     let cleanEmail = (email || '').trim().toLowerCase();
-    
     if (cleanEmail === 'student') cleanEmail = 'student@slms.com';
     if (cleanEmail === 'faculty') cleanEmail = 'faculty@slms.com';
     if (cleanEmail === 'admin') cleanEmail = 'admin@slms.com';
@@ -27,16 +26,26 @@ export default function Login() {
     setLoading(false);
 
     if (res.success) {
-      const userRole = res.user?.role || '';
-      
-      // ✅ SMART REDIRECT BASED ON ROLE
-      if (['super_admin', 'admin', 'librarian'].includes(userRole)) {
-        // Admin/Librarian → Angular Console
-        window.location.href = '/dashboard';
-      } else {
-        // Student/Faculty → React Dashboard
-        navigate('/');
+      const userRole = (res.user?.role || '').toLowerCase();
+
+      // 🔒 ADMINS MUST USE ANGULAR ADMIN CONSOLE
+      if (
+        userRole === 'super_admin' ||
+        userRole === 'admin' ||
+        userRole === 'librarian' ||
+        userRole.includes('admin')
+      ) {
+        // Clear any token that was saved
+        localStorage.removeItem('slms_token');
+        localStorage.removeItem('slms_user');
+        setErrorMessage(
+          'Admin/Librarian accounts must login via the Admin Console (Angular Panel).'
+        );
+        return;
       }
+
+      // Only students/faculty go to student dashboard
+      navigate('/');
     } else {
       setErrorMessage(res.message || 'Invalid email or password. Please check your credentials.');
     }
@@ -44,7 +53,6 @@ export default function Login() {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-slate-950 p-4 relative overflow-hidden">
-      {/* Background Glows */}
       <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-indigo-600/20 rounded-full blur-3xl pointer-events-none" />
       <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-violet-600/20 rounded-full blur-3xl pointer-events-none" />
 
@@ -54,7 +62,7 @@ export default function Login() {
             <BookOpen className="w-7 h-7" />
           </div>
           <h1 className="text-2xl font-bold text-white tracking-tight">Smart Library System</h1>
-          <p className="text-xs text-slate-400">Enter your credentials to access your portal</p>
+          <p className="text-xs text-slate-400">Student & Faculty Portal</p>
         </div>
 
         {errorMessage && (
@@ -120,6 +128,11 @@ export default function Login() {
             <UserPlus className="w-3.5 h-3.5" /> Sign Up Free
           </Link>
         </div>
+
+        {/* Optional helper text */}
+        <p className="text-[10px] text-center text-slate-500 pt-2">
+          Admin / Librarian? Please use the <span className="text-indigo-400">Admin Console</span>
+        </p>
       </div>
     </div>
   );
